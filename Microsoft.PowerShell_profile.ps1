@@ -43,6 +43,13 @@ function git.commit {
     git add -u;
     git commit -m $message;
     git push;
+    <# 
+    if($LASTEXITCODE) {return}
+    else { 
+        try { git push --set-upstream origin main -f }
+        catch { Throw } 
+    }
+    #>
 };
 
 New-Alias commit git.commit;
