@@ -42,6 +42,8 @@ function git.commit {
     Param([Parameter(Mandatory)][string]$message);
     git add -u;
     git commit -m $message;
+    git fetch;
+    git pull;
     git push;
     <# 
     if($LASTEXITCODE) {return}
