@@ -136,6 +136,50 @@ function git.tagLastCommit($tag, $message) {
     git tag -a $tag HEAD -m "$message";
 };
 
+
+
+    #[System.Windows.Forms.SendKeys]::SendWait("A");
+    #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
+
+<# WORK IN PROGRESS 
+function gitInit($repoUrl) {
+    $gitProjectExists = git status
+    if($gitProjectExists -eq $null) {
+        git init
+        echo 'initialized new git project'
+
+        if((test-path .gitignoress) -eq $False){
+            "node_modules`n" >> .gitignore;
+            echo 'created .gitignore'
+        }
+        git add .gitignore
+        git commit -m "commited .gitignore"
+        echo "commited .gitignore"
+        git remote add origin "$repoUrl"
+        echo "Added $repoUrl as new remote origin"
+    }
+
+    else {echo 'git project exists'}
+
+}
+#>
+
+function git.forcePush() {
+    $push0,$push1 = $null;
+    $push0 = git push;
+    <#Check if the last command yielded an error.#>
+    if (-not $?) {
+            echo "First git push failed!"
+            $push1 = git push --set-upstream origin main
+            if(-not $?) {
+                throw "`git push --set-upstream origin main` failed as well!"
+            }
+            else{ echo "Second git push successful!"}
+        }
+    else {echo "First git push successful!"}        
+}
+
+
 function updateNpm { npm update -g npm; };
 
 function deleteAllFilesByExtension($format) {
@@ -163,6 +207,12 @@ function Delete-All($format, $cmd) {
         };
     };
 };
+
+
+function Force-Delete($path){
+    Get-ChildItem -Path $path -Recurse | Remove-Item -force -recurse;
+    Remove-Item $path -Force;
+}
 
 
 
