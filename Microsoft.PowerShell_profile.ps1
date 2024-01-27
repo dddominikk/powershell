@@ -47,9 +47,21 @@ function nrun {
         [string[]]$ScriptArgs
     )
 
-    $scriptArguments = $ScriptArgs -join ' '
-    npm run $ScriptName -- $scriptArguments
+    # Prepare the command and arguments
+    $command = 'npm'
+    $arguments = @('run', $ScriptName)
+
+    # Add script arguments if they exist
+    if ($ScriptArgs) {
+        $arguments += '--'
+        $arguments += $ScriptArgs
+    }
+
+    # Invoke the command with arguments
+    & $command $arguments
 }
+
+
 
 
 <#
