@@ -36,6 +36,24 @@ New-Alias iu Invoke-Utility;
 
 <#
 .DESCRIPTION
+`npm run` shorthand.
+#>
+function nrun {
+    param(
+        [Parameter(Mandatory=$true)]
+        [string]$ScriptName,
+
+        [Parameter(Mandatory=$false, ValueFromRemainingArguments=$true)]
+        [string[]]$ScriptArgs
+    )
+
+    $scriptArguments = $ScriptArgs -join ' '
+    npm run $ScriptName -- $scriptArguments
+}
+
+
+<#
+.DESCRIPTION
 Commits unstaged changes to tracked files.
 #>
 function git.commit {
@@ -73,6 +91,7 @@ function gb {
     git branch;
 };
 
+<# Specific to @airtable/blocks-cli #>
 function blr {
     block list-remotes;
 };
@@ -93,6 +112,7 @@ function gitNoNode {
     git push;
 };
 
+
 function tsc($flag) {
     
     if ($flag) { return npx tsc -$flag };
@@ -100,8 +120,11 @@ function tsc($flag) {
     return npx tsc;
 };
 
-function Is-File ($path) { Test-Path "$path" -PathType Leaf };
-function Is-Folder ($path) { Test-Path "$path" -PathType Container };
+
+
+
+function IsFile ($path) { Test-Path "$path" -PathType Leaf };
+function IsFolder ($path) { Test-Path "$path" -PathType Container };
 
 <#
 .DESCRIPTION
@@ -178,6 +201,8 @@ function Count($target) {
 function git.tagLastCommit($tag, $message) {
     git tag -a $tag HEAD -m "$message";
 };
+##gh release create <tagname> --target <branchname>
+
 
 
 
