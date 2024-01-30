@@ -63,6 +63,11 @@ $encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((
     overwrite= $true
     } -compress)));
 
+
+<#
+    .EXAMPLE
+        `nrun dev(toJson64 @{scripts=@('src/arrayToChunks.ts','src/randomId.ts');overwrite=$true})`
+#>
 function toJson64(){
     param(
         [Parameter(Mandatory=$false)]
@@ -70,15 +75,8 @@ function toJson64(){
         )
     $hsh = {}
     if($obj) {$hsh = $obj}
-    $encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json $hsh -compress)));
-    return $encodedjson;
+    return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json $hsh -compress)));
 }
-
-
-
-
-
-
 
 New-Alias iu Invoke-Utility;
 
