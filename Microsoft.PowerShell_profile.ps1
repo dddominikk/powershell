@@ -19,6 +19,9 @@ function BackOneDir{
     cd $lastDir
 }
 
+
+
+
 Set-Alias bd BackOneDir
 
 function Invoke-Utility {
@@ -52,6 +55,30 @@ function Invoke-Utility {
     Else { Throw "$exe indicated failure (exit code $LASTEXITCODE; full command: $Args)." }
     
 };
+
+
+
+$encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{
+    scripts = @('src/arrayToChunks.ts','src/randomId.ts')
+    overwrite= $true
+    } -compress)));
+
+function toJson64(){
+    param(
+        [Parameter(Mandatory=$false)]
+        [hashtable]$obj
+        )
+    $hsh = {}
+    if($obj) {$hsh = $obj}
+    $encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json $hsh -compress)));
+    return $encodedjson;
+}
+
+
+
+
+
+
 
 New-Alias iu Invoke-Utility;
 
