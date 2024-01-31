@@ -1,10 +1,21 @@
 ﻿Set-StrictMode -Version 5;
+
+<#
+ .NOTES
+    See [PowerShell Docs](https://learn.microsoft.com/en-us/powershell/module/psreadline/set-psreadlineoption).
+#>
+Set-PSReadLineOption -Colors @{
+    "Parameter"="#86BBD8"
+    #"Command"="Blue"
+    "Error"=[System.ConsoleColor]::DarkRed 
+}
+
 [System.Collections.Stack]$GLOBAL:dirStack = @()
 $GLOBAL:oldDir = ''
 $GLOBAL:addToStack = $true
 function prompt
 {
-    Write-Host "PS $(get-location)>"  -NoNewLine #-foregroundcolor Magenta
+    Write-Host "PS $(get-location)>"  -NoNewLine -foregroundcolor "Magenta"
     $GLOBAL:nowPath = (Get-Location).Path
     if(($nowPath -ne $oldDir) -AND $GLOBAL:addToStack){
         $GLOBAL:dirStack.Push($oldDir)
