@@ -173,12 +173,19 @@ function wtAdmin {
     Start-Process wt -Verb RunAs
 };
 
-
-function gitNoNode {
-    git rm - r--cached.;
-    git add.;
-    git commit - m "auto-recommiting to get rid of node_modules dirs from source control.";
-    git push;
+<#
+.DESCRIPTION
+Removes all untracked files and syncs your local branch with the remote one, thus squashing local changes
+#>
+function git.resetUntracked {
+    git reset --hard HEAD
+    git clean -fxd
+    <#
+    git rm -r --cached .
+    git add .
+    git commit - m "auto-recommiting to get rid of node_modules dirs from source control."
+    git push
+    #>
 };
 
 
