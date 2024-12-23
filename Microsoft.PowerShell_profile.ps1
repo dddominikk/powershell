@@ -24,16 +24,11 @@ function prompt
     $GLOBAL:AddToStack = $true
     return ' '
 }
-function BackOneDir{
+function GoBack{
     $lastDir = $GLOBAL:dirStack.Pop()
     $GLOBAL:addToStack = $false
     cd $lastDir
 }
-
-
-
-
-Set-Alias bd BackOneDir
 
 function Invoke-Utility {
     <#
