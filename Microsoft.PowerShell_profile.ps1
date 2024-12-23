@@ -1,4 +1,6 @@
 ﻿Set-StrictMode -Version 5;
+<#git autocomplete#>
+Import-Module posh-git
 
 <#
  .NOTES
@@ -326,8 +328,7 @@ function gitInit {
     #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
 
 
-<#git autocomplete#>
-Import-Module posh-git
+
 
 function git.forcePush() {
     $push0,$push1 = $null;
