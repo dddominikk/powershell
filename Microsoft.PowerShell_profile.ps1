@@ -330,6 +330,10 @@ function gitInit {
     #[System.Windows.Forms.SendKeys]::SendWait("A");
     #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
 
+
+<#git autocomplete#>
+Import-Module posh-git
+
 function git.forcePush() {
     $push0,$push1 = $null;
     $push0 = git push;
