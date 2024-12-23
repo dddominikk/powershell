@@ -68,12 +68,12 @@ function Invoke-Utility {
 };
 
 
-
+<#
 $encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json @{
     scripts = @('src/arrayToChunks.ts','src/randomId.ts')
     overwrite= $true
     } -compress)));
-
+#>
 
 <#
     .EXAMPLE
@@ -189,9 +189,6 @@ function tsc($flag) {
     return npx tsc;
 };
 
-
-
-
 function IsFile ($path) { Test-Path "$path" -PathType Leaf };
 function IsFolder ($path) { Test-Path "$path" -PathType Container };
 
@@ -273,33 +270,53 @@ function git.tagLastCommit($tag, $message) {
 ##gh release create <tagname> --target <branchname>
 
 
+<#
+.DESCRIPTION connects a local git repo with a remote GitHub one.
+.EXAMPLE Connect-GitRepo -remoteUrl "https://github.com/yourusername/yourrepository.git" -mainBranchName "main"
+#>
+function gitInit {
+    param (
+        [string]$remoteUrl,
+        [string]$mainBranchName
+    )
+
+    # Set the current directory to your repository's local directory if necessary
+    # Set-Location -Path "C:\Path\To\Your\Repo"
+
+    # Check current branch and rename if needed
+    $currentBranch = git rev-parse --abbrev-ref HEAD
+    if ($currentBranch -ne $mainBranchName) {
+        Write-Host "Renaming branch from $currentBranch to $mainBranchName..."
+        git branch -m $mainBranchName
+    }
+
+    # Add remote origin and set it if it doesn't exist
+    if (-not (git remote -v | Select-String "origin")) {
+        Write-Host "Adding remote origin..."
+        git remote add origin $remoteUrl
+    } else {
+        Write-Host "Remote origin already exists, setting URL..."
+        git remote set-url origin $remoteUrl
+    }
+
+    # Perform a test push to the main branch
+    try {
+        Write-Host "Performing a test push to $mainBranchName..."
+        git push -u origin $mainBranchName
+        Write-Host "Push successful!"
+    } catch {
+        Write-Host "Error during push. Please check your configuration."
+    }
+}
+
+# Example usage:
+# Connect-GitRepo -remoteUrl "https://github.com/yourusername/yourrepository.git" -mainBranchName "main"
+
+
 
 
     #[System.Windows.Forms.SendKeys]::SendWait("A");
     #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
-
-<# WORK IN PROGRESS 
-function gitInit($repoUrl) {
-    $gitProjectExists = git status
-    if($gitProjectExists -eq $null) {
-        git init
-        echo 'initialized new git project'
-
-        if((test-path .gitignoress) -eq $False){
-            "node_modules`n" >> .gitignore;
-            echo 'created .gitignore'
-        }
-        git add .gitignore
-        git commit -m "commited .gitignore"
-        echo "commited .gitignore"
-        git remote add origin "$repoUrl"
-        echo "Added $repoUrl as new remote origin"
-    }
-
-    else {echo 'git project exists'}
-
-}
-#>
 
 function git.forcePush() {
     $push0,$push1 = $null;
