@@ -189,6 +189,11 @@ function tsc($flag) {
     return npx tsc;
 };
 
+# Why write ts-note when you can write tsn?
+function tsn ($path){
+    ts-node "$path";
+}
+
 function IsFile ($path) { Test-Path "$path" -PathType Leaf };
 function IsFolder ($path) { Test-Path "$path" -PathType Container };
 
