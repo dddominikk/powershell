@@ -129,13 +129,6 @@ function git.commit {
     git fetch;
     git pull;
     git push;
-    <# 
-    if($LASTEXITCODE) {return}
-    else { 
-        try { git push --set-upstream origin main -f }
-        catch { Throw } 
-    }
-    #>
 };
 
 New-Alias commit git.commit;
