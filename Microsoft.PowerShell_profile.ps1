@@ -341,8 +341,31 @@ function git.forcePush() {
 
 function updateNpm { npm update -g npm; };
 
-function deleteAllFilesByExtension($format) {
-    del *.$format;
+
+
+
+function deleteAllFilesByExtension() {
+      param(
+        [Parameter(
+            Mandatory=$True,
+            Position = 0
+        )]
+        [string]
+        $firstArg,
+     
+        [Parameter(
+            Mandatory=$True,
+            ValueFromRemainingArguments=$true,
+            Position = 1
+        )][string[]]
+        $listArgs
+    )
+
+    #'$listArgs[{0}]: {1}' -f $count, $listArg
+    foreach($listArg in $listArgs) {
+        del *.$listArg
+    }
+    #del *.$format;
 };
 
 <#
