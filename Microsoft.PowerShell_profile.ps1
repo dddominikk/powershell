@@ -133,6 +133,8 @@ function git.commit {
 
 New-Alias commit git.commit;
 
+
+
 <#
  .DESCRIPTION
  Git Status shortcut; write `gs u` for the equivalent of the `git status --untracked` command.
@@ -145,6 +147,7 @@ function gs () {
 
     git status;
 };
+
 
 function gb {
     git branch;
@@ -512,3 +515,16 @@ function ConvertTo-JsonifiablePSObject {
 
     return New-Object -TypeName PSObject -Property $newObjectProperties
 };
+
+<#
+    REQUIRES ffmpeg
+#>>
+function Download-YT {
+    param(
+            [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
+        [string]$url
+    )
+
+    yt-dlp -f "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]" --merge-output-format mp4 "$url"
+
+}
