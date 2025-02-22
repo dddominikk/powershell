@@ -518,7 +518,7 @@ function ConvertTo-JsonifiablePSObject {
 
 <#
     REQUIRES ffmpeg
-#>>
+#>
 function Download-YT {
     param(
             [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
