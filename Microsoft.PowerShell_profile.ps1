@@ -285,6 +285,8 @@ function gitInit {
         [string]$mainBranchName
     )
 
+    git init
+
     # Set the current directory to your repository's local directory if necessary
     # Set-Location -Path "C:\Path\To\Your\Repo"
 
@@ -521,10 +523,18 @@ function ConvertTo-JsonifiablePSObject {
 #>
 function Download-YT {
     param(
-            [Parameter(Mandatory=$true, ValueFromPipeline = $true)]
-        [string]$url
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [string]$url,
+
+        [Parameter(Mandatory=$false)]
+        [string]$cookies
     )
 
-    yt-dlp -f "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]" --merge-output-format mp4 "$url"
+    $cmd = "yt-dlp -f `"bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]`" --merge-output-format mp4 `"$url`""
 
+    if ($cookies) {
+        $cmd += " --cookies-from-browser $cookies"
+    }
+
+    Invoke-Expression $cmd
 }
