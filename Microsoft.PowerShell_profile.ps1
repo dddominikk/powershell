@@ -520,6 +520,12 @@ function ConvertTo-JsonifiablePSObject {
 
 <#
     REQUIRES ffmpeg
+    
+    Update yt-dlp by running `yt-dlp -U` if the download fails with an error along the following lines:
+    ```
+    WARNING: [youtube] oprmuMXtfAo: nsig extraction failed: Some formats may be missing.
+    Install PhantomJS to workaround the issue. Please download it from https://phantomjs.org/download.html
+    ```
 #>
 function Download-YT {
     param(
