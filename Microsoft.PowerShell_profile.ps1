@@ -544,3 +544,61 @@ function Download-YT {
 
     Invoke-Expression $cmd
 }
+
+
+
+
+function Download-SteamScreenshots {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$InputValue,
+
+        [string]$DownloadFolder
+    )
+
+    if ($InputValue -match '^https?://store\.steampowered\.com/app/(\d+)') {
+        $AppId = $matches[1]
+    } elseif ($InputValue -match '^\d+$') {
+        $AppId = $InputValue
+    } else {
+        Write-Error "Invalid input: must be a numeric App ID or a valid Steam store URL."
+        return
+    }
+
+    $url = "https://store.steampowered.com/api/appdetails?appids=$AppId"
+    $response = Invoke-RestMethod -Uri $url
+
+    if (-not $response."$AppId".success) {
+        Write-Error "Failed to get data for AppID $AppId"
+        return
+    }
+
+    $data = $response."$AppId".data
+    $screenshots = $data.screenshots
+    $name = $data.name
+    $safeName = ($name -replace '[<>:"/\\|?*]', '').Trim()
+
+    if (-not $DownloadFolder) {
+        $DownloadFolder = Join-Path -Path (Get-Location) -ChildPath $safeName
+    }
+
+    if (-not (Test-Path $DownloadFolder)) {
+        New-Item -ItemType Directory -Path $DownloadFolder | Out-Null
+    }
+
+    $index = 1
+    foreach ($screenshot in $screenshots) {
+        # Strip query string from URL (e.g., ?t=timestamp)
+        $url = $screenshot.path_full -replace '\?.*$', ''
+        $extension = [System.IO.Path]::GetExtension($url)
+        $fileName = "$safeName promo gameplay screenshot $index$extension"
+        $filePath = Join-Path $DownloadFolder $fileName
+
+        Write-Host "Downloading: $fileName"
+        Invoke-WebRequest -Uri $url -OutFile $filePath
+
+        $index++
+    }
+
+    Write-Host "Done. Screenshots saved to '$DownloadFolder'."
+}
