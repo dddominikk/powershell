@@ -536,6 +536,8 @@ function Download-YT {
         [string]$cookies
     )
 
+    yt-dlp -U
+
     $cmd = "yt-dlp -f `"bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4][height<=1080]`" --merge-output-format mp4 `"$url`""
 
     if ($cookies) {
