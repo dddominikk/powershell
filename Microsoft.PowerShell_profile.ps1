@@ -333,7 +333,9 @@ function git.forcePush() {
     $push0 = git push;
     <#Check if the last command yielded an error.#>
     if (-not $?) {
+            $currentBranch = git rev-parse --abbrev-ref HEAD
             echo "First git push failed!"
+            git pull origin $currentBranch
             $push1 = git push --set-upstream origin main
             if(-not $?) {
                 throw "`git push --set-upstream origin main` failed as well!"
@@ -604,3 +606,4 @@ function Download-SteamScreenshots {
 
     Write-Host "Done. Screenshots saved to '$DownloadFolder'."
 }
+
