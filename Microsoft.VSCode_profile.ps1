@@ -4,7 +4,7 @@ Set-StrictMode -Version 5;
 .DESCRIPTION
 Commits unstaged changes to tracked files.
 #>
-function git.commit {
+function Git.commit {
     Param([Parameter(Mandatory)][string]$message);
     git add -u;
     git commit -m $message;

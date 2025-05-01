@@ -7,26 +7,25 @@ Import-Module posh-git
     See [PowerShell Docs](https://learn.microsoft.com/en-us/powershell/module/psreadline/set-psreadlineoption).
 #>
 Set-PSReadLineOption -Colors @{
-    "Parameter"="#86BBD8"
+    "Parameter" = "#86BBD8"
     #"Command"="Blue"
-    "Error"=[System.ConsoleColor]::DarkRed 
+    "Error"     = [System.ConsoleColor]::DarkRed 
 }
 
 [System.Collections.Stack]$GLOBAL:dirStack = @()
 $GLOBAL:oldDir = ''
 $GLOBAL:addToStack = $true
-function prompt
-{
+function prompt {
     Write-Host "PS $(get-location)>"  -NoNewLine -foregroundcolor "Magenta"
     $GLOBAL:nowPath = (Get-Location).Path
-    if(($nowPath -ne $oldDir) -AND $GLOBAL:addToStack){
+    if (($nowPath -ne $oldDir) -AND $GLOBAL:addToStack) {
         $GLOBAL:dirStack.Push($oldDir)
         $GLOBAL:oldDir = $nowPath
     }
     $GLOBAL:AddToStack = $true
     return ' '
 }
-function GoBack{
+function GoBack {
     $lastDir = $GLOBAL:dirStack.Pop()
     $GLOBAL:addToStack = $false
     cd $lastDir
@@ -76,13 +75,13 @@ $encodedjson = [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((
     .EXAMPLE
         `nrun dev(toJson64 @{scripts=@('src/arrayToChunks.ts','src/randomId.ts');overwrite=$true})`
 #>
-function toJson64(){
+function toJson64() {
     param(
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [hashtable]$obj
-        )
+    )
     $hsh = {}
-    if($obj) {$hsh = $obj}
+    if ($obj) { $hsh = $obj }
     return [Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes((ConvertTo-Json $hsh -compress)));
 }
 
@@ -94,10 +93,10 @@ New-Alias iu Invoke-Utility;
 #>
 function nrun {
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$ScriptName,
 
-        [Parameter(Mandatory=$false, ValueFromRemainingArguments=$true)]
+        [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true)]
         [string[]]$ScriptArgs
     )
 
@@ -116,29 +115,70 @@ function nrun {
 }
 
 
-
+New-Alias -Name commit -Value Git.commit;
 
 <#
 .DESCRIPTION
 Commits unstaged changes to tracked files.
 #>
-function git.commit {
-    Param([Parameter(Mandatory)][string]$message);
-    git add -u;
-    git commit -m $message;
-    git fetch;
-    git pull;
-    git push;
-};
-
-New-Alias commit git.commit;
-
+function Git.commit {
+    Param(
+        [Parameter(Mandatory = $false)]
+        [string]$message
+    )
+    
+    # If no message is provided, generate one with timestamp
+    if (-not $message) {
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $message = "$timestamp`: semi-automated commit"
+    }
+    
+    # Display the commit message being used
+    Write-Host "Committing with message: $message" -ForegroundColor Cyan
+    
+    # Execute git commands
+    git add -u
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to stage changes."
+        return
+    }
+    
+    git commit -m $message
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to commit changes."
+        return
+    }
+    
+    git fetch
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to fetch updates. Continuing..."
+    }
+    
+    git pull
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Failed to pull updates. You may need to resolve conflicts."
+    }
+    
+    git push
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to push changes. You may need to pull first or resolve conflicts."
+        return
+    }
+    
+    Write-Host "✅ Successfully committed and pushed changes." -ForegroundColor Green
+}
 
 
 <#
  .DESCRIPTION
  Git Status shortcut; write `gs u` for the equivalent of the `git status --untracked` command.
 #>
+
 function gs () {
     
     param ([string]$flag = "");
@@ -170,7 +210,7 @@ function wtAdmin {
 .DESCRIPTION
 Removes all untracked files and syncs your local branch with the remote one, thus squashing local changes
 #>
-function git.resetUntracked {
+function Git-Reset-Untracked {
     git reset --hard HEAD
     git clean -fxd
     <#
@@ -190,7 +230,7 @@ function tsc($flag) {
 };
 
 # Why write ts-note when you can write tsn?
-function tsn ($path){
+function tsn ($path) {
     ts-node "$path";
 }
 
@@ -269,7 +309,7 @@ function Count($target) {
 
 };
 
-function git.tagLastCommit($tag, $message) {
+function Git-Tag-Last-Commit ($tag, $message) {
     git tag -a $tag HEAD -m "$message";
 };
 ##gh release create <tagname> --target <branchname>
@@ -301,7 +341,8 @@ function gitInit {
     if (-not (git remote -v | Select-String "origin")) {
         Write-Host "Adding remote origin..."
         git remote add origin $remoteUrl
-    } else {
+    }
+    else {
         Write-Host "Remote origin already exists, setting URL..."
         git remote set-url origin $remoteUrl
     }
@@ -311,7 +352,8 @@ function gitInit {
         Write-Host "Performing a test push to $mainBranchName..."
         git push -u origin $mainBranchName
         Write-Host "Push successful!"
-    } catch {
+    }
+    catch {
         Write-Host "Error during push. Please check your configuration."
     }
 }
@@ -322,27 +364,27 @@ function gitInit {
 
 
 
-    #[System.Windows.Forms.SendKeys]::SendWait("A");
-    #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
+#[System.Windows.Forms.SendKeys]::SendWait("A");
+#[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
 
 
 
 
-function git.forcePush() {
-    $push0,$push1 = $null;
+function Git-Force-Push() {
+    $push0, $push1 = $null;
     $push0 = git push;
     <#Check if the last command yielded an error.#>
     if (-not $?) {
-            $currentBranch = git rev-parse --abbrev-ref HEAD
-            echo "First git push failed!"
-            git pull origin $currentBranch
-            $push1 = git push --set-upstream origin main
-            if(-not $?) {
-                throw "`git push --set-upstream origin main` failed as well!"
-            }
-            else{ echo "Second git push successful!"}
+        $currentBranch = git rev-parse --abbrev-ref HEAD
+        echo "First git push failed!"
+        git pull origin $currentBranch
+        $push1 = git push --set-upstream origin main
+        if (-not $?) {
+            throw "`git push --set-upstream origin main` failed as well!"
         }
-    else {echo "First git push successful!"}        
+        else { echo "Second git push successful!" }
+    }
+    else { echo "First git push successful!" }        
 }
 
 
@@ -352,24 +394,24 @@ function updateNpm { npm update -g npm; };
 
 
 function deleteAllFilesByExtension() {
-      param(
+    param(
         [Parameter(
-            Mandatory=$True,
+            Mandatory = $True,
             Position = 0
         )]
         [string]
         $firstArg,
      
         [Parameter(
-            Mandatory=$True,
-            ValueFromRemainingArguments=$true,
+            Mandatory = $True,
+            ValueFromRemainingArguments = $true,
             Position = 1
         )][string[]]
         $listArgs
     )
 
     #'$listArgs[{0}]: {1}' -f $count, $listArg
-    foreach($listArg in $listArgs) {
+    foreach ($listArg in $listArgs) {
         del *.$listArg
     }
     #del *.$format;
@@ -398,7 +440,7 @@ function Delete-All($format, $cmd) {
 };
 
 
-function Force-Delete($path){
+function Force-Delete($path) {
     Get-ChildItem -Path $path -Recurse | Remove-Item -force -recurse;
     Remove-Item $path -Force;
 }
@@ -531,10 +573,10 @@ function ConvertTo-JsonifiablePSObject {
 #>
 function Download-YT {
     param(
-        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [string]$url,
 
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$cookies
     )
 
@@ -554,7 +596,7 @@ function Download-YT {
 
 function Download-SteamScreenshots {
     param (
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [string]$InputValue,
 
         [string]$DownloadFolder
@@ -562,9 +604,11 @@ function Download-SteamScreenshots {
 
     if ($InputValue -match '^https?://store\.steampowered\.com/app/(\d+)') {
         $AppId = $matches[1]
-    } elseif ($InputValue -match '^\d+$') {
+    }
+    elseif ($InputValue -match '^\d+$') {
         $AppId = $InputValue
-    } else {
+    }
+    else {
         Write-Error "Invalid input: must be a numeric App ID or a valid Steam store URL."
         return
     }
@@ -607,3 +651,126 @@ function Download-SteamScreenshots {
     Write-Host "Done. Screenshots saved to '$DownloadFolder'."
 }
 
+
+
+function Git-Sync-Branch {
+    # Get the current branch name
+    $currentBranch = git rev-parse --abbrev-ref HEAD
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to get current branch. Are you in a git repository?"
+        return
+    }
+    
+    # Get the remote origin URL
+    $remoteOrigin = git config --get remote.origin.url
+    
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to get remote origin URL. Does remote 'origin' exist?"
+        return
+    }
+    
+    Write-Host "Current branch: $currentBranch"
+    Write-Host "Remote origin: $remoteOrigin"
+    
+    # Check if the branch exists remotely
+    $remoteBranchExists = $false
+    $remoteBranches = git ls-remote --heads origin $currentBranch
+    
+    if ($remoteBranches) {
+        Write-Host "Branch '$currentBranch' already exists on remote."
+        $remoteBranchExists = $true
+    }
+    else {
+        Write-Host "Branch '$currentBranch' does not exist on remote."
+    }
+    
+    # If branch doesn't exist remotely, push it
+    if (-not $remoteBranchExists) {
+        Write-Host "Creating branch '$currentBranch' on remote..."
+        git push -u origin $currentBranch
+        
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "Successfully created remote branch and set up tracking."
+        }
+        else {
+            Write-Error "Failed to push branch to remote."
+            return
+        }
+    }
+    else {
+        # Ensure tracking is set up if branch already exists
+        $trackingBranch = git rev-parse --abbrev-ref --symbolic-full-name "@{u}" 2>$null
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "Setting up tracking for existing remote branch..."
+            git branch --set-upstream-to=origin/$currentBranch $currentBranch
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "Successfully set up tracking for existing remote branch."
+            }
+            else {
+                Write-Error "Failed to set upstream tracking branch."
+                return
+            }
+        }
+        else {
+            Write-Host "Tracking already set up to $trackingBranch"
+        }
+    }
+    
+    Write-Host "Branch '$currentBranch' is now properly set up to track 'origin/$currentBranch'."
+}
+
+
+
+
+
+
+
+
+
+function Restart-PowerShell {
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$Path,
+        
+        [Parameter(Mandatory = $false)]
+        [string]$Command
+    )
+    
+    # Determine the path to use
+    $targetPath = if ($Path -and (Test-Path -Path $Path)) { 
+        (Resolve-Path $Path).Path 
+    }
+    else { 
+        $PWD.Path 
+    }
+    
+    Write-Host "Restarting PowerShell in: $targetPath"
+    
+    # Properly escape the command for PowerShell
+    if ($Command) {
+        # Double escape quotes and backticks for passing through multiple layers
+        $escapedCommand = $Command -replace '`', '``' -replace '"', '`"' -replace "'", "`'"
+        
+        # Create a base64 encoded command to avoid escaping issues
+        $bytes = [System.Text.Encoding]::Unicode.GetBytes($escapedCommand)
+        $encodedCommand = [Convert]::ToBase64String($bytes)
+        
+        # Use -EncodedCommand parameter to avoid escaping problems
+        & wt -d "$targetPath" powershell.exe -NoExit -EncodedCommand $encodedCommand
+    }
+    else {
+        # Start Windows Terminal without command
+        & wt -d "$targetPath"
+    }
+    
+    # Wait a moment to ensure the new terminal launches
+    Start-Sleep -Milliseconds 500
+    
+    # Exit the current session
+    exit
+}
+
+New-Alias restart Restart-PowerShell;
