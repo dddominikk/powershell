@@ -2,6 +2,11 @@
 <#git autocomplete#>
 Import-Module posh-git
 
+<# Make sure writing to files from the CLI doesn't malform them. #>
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
+$PSDefaultParameterValues['Get-Content:Encoding'] = 'utf8'
+
 <#
  .NOTES
     See [PowerShell Docs](https://learn.microsoft.com/en-us/powershell/module/psreadline/set-psreadlineoption).
