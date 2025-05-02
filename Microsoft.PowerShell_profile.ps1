@@ -830,3 +830,9 @@ function Obsidian {
     Start-Process "C:\Program Files\Obsidian\Obsidian.exe"
 }
 
+
+function Get-Custom-Functions {
+    $myFns = Get-ChildItem function:
+    Write-Host "You have $($myFns.Length) functions defined in your profile."
+    $myFns.Name
+}
