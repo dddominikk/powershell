@@ -724,11 +724,7 @@ function Git-Sync-Branch {
 
 
 
-
-
-
-
-
+New-Alias restart Restart-PowerShell;
 
 function Restart-PowerShell {
     param(
@@ -736,7 +732,10 @@ function Restart-PowerShell {
         [string]$Path,
         
         [Parameter(Mandatory = $false)]
-        [string]$Command
+        [string]$Command,
+        
+        [Parameter(Mandatory = $false)]
+        [bool]$RunAsAdmin = $false
     )
     
     # Determine the path to use
@@ -749,21 +748,67 @@ function Restart-PowerShell {
     
     Write-Host "Restarting PowerShell in: $targetPath"
     
-    # Properly escape the command for PowerShell
-    if ($Command) {
-        # Double escape quotes and backticks for passing through multiple layers
-        $escapedCommand = $Command -replace '`', '``' -replace '"', '`"' -replace "'", "`'"
+    # Check if Windows Terminal is installed
+    $wtInstalled = $null -ne (Get-Command "wt.exe" -ErrorAction SilentlyContinue)
+    
+    # Base PowerShell executable
+    $psExe = "powershell.exe"
+    
+    # Check if administrator mode is requested
+    if ($RunAsAdmin) {
+        Write-Host "Launching with administrator privileges..." -ForegroundColor Yellow
         
-        # Create a base64 encoded command to avoid escaping issues
-        $bytes = [System.Text.Encoding]::Unicode.GetBytes($escapedCommand)
-        $encodedCommand = [Convert]::ToBase64String($bytes)
+        # Create a script that properly sets the location and then runs any commands
+        $scriptContent = @"
+try {
+    # Attempt to set location to target path
+    Set-Location -Path '$targetPath' -ErrorAction Stop
+    Write-Host "Successfully changed to directory: '$targetPath'" -ForegroundColor Green
+} catch {
+    Write-Warning "Could not access directory '$targetPath': `$(`$_.Exception.Message)"
+    Write-Host "Starting in default location instead." -ForegroundColor Yellow
+}
+
+# Execute any provided commands
+$Command
+"@
         
-        # Use -EncodedCommand parameter to avoid escaping problems
-        & wt -d "$targetPath" powershell.exe -NoExit -EncodedCommand $encodedCommand
+        # Save to a temporary file
+        $tempFile = [System.IO.Path]::GetTempFileName() + ".ps1"
+        $scriptContent | Out-File -FilePath $tempFile -Encoding utf8
+        
+        # For admin mode, we'll use a direct PowerShell launch
+        # Windows Terminal has issues with elevated processes and directory paths
+        Start-Process $psExe -ArgumentList "-NoExit -File `"$tempFile`"" -Verb RunAs
     }
     else {
-        # Start Windows Terminal without command
-        & wt -d "$targetPath"
+        # Standard non-admin launch
+        if ($wtInstalled) {
+            # Use Windows Terminal if available
+            if ($Command) {
+                # Create a base64 encoded command to avoid escaping issues
+                $fullCommand = "Set-Location -Path '$targetPath'; $Command"
+                $bytes = [System.Text.Encoding]::Unicode.GetBytes($fullCommand)
+                $encodedCommand = [Convert]::ToBase64String($bytes)
+                
+                # Use 'wt' to stay in Windows Terminal interface
+                # runas.exe /trustlevel:0x20000 | wt.exe -d "$targetPath" powershell.exe
+                runas /trustlevel:0x20000 | wt powershell.exe -NoExit -EncodedCommand $encodedCommand
+                
+            }
+            else {
+                runas /trustlevel:0x20000 | wt -d "$targetPath" powershell.exe
+            }
+        }
+        else {
+            # Fall back to regular PowerShell if Windows Terminal isn't available
+            if ($Command) {
+                Start-Process $psExe -ArgumentList "-NoExit -Command `"Set-Location -Path '$targetPath'; $Command`""
+            }
+            else {
+                Start-Process $psExe -ArgumentList "-NoExit -Command `"Set-Location -Path '$targetPath'`""
+            }
+        }
     }
     
     # Wait a moment to ensure the new terminal launches
@@ -773,4 +818,15 @@ function Restart-PowerShell {
     exit
 }
 
-New-Alias restart Restart-PowerShell;
+
+
+New-Alias -name test-admin -value Test-Admin-Privileges;
+function Test-Admin-Privileges {  
+    $user = [Security.Principal.WindowsIdentity]::GetCurrent();
+    (New-Object Security.Principal.WindowsPrincipal $user).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)  
+}
+
+function Obsidian {
+    Start-Process "C:\Program Files\Obsidian\Obsidian.exe"
+}
+
