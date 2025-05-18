@@ -865,9 +865,9 @@ function Update-PsProfileRemote{
         [Parameter(Mandatory = $false)]
         [string]$msg = "Updated PowerShell profile pushed to remote."
     )
-    go-to-location $PROFILE;
-    commit "$msg";
-    go-back;
+    go-to-location $PROFILE
+    commit "$msg"
+    goback
 }
 
 
