@@ -839,3 +839,38 @@ function Get-Custom-Functions {
     Write-Host "You have $($myFns.Length) functions defined in your profile."
     $myFns.Name
 }
+
+function New-GitHubRepo {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$repoName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$mainBranch
+    )
+
+    mkdir $repoName
+    cd $repoName
+    git init
+    "node_modules`n" > .gitignore
+    git add .gitignore
+    git commit -m "Initial commit with .gitignore"
+    gh repo create $repoName --private --source=. --remote=origin --push
+    #git push -u origin $mainBranch
+}
+
+
+function Update-PsProfileRemote{
+    param(
+        [Parameter(Mandatory = $false)]
+        [string]$msg = "Updated PowerShell profile pushed to remote."
+    )
+    go-to-location $PROFILE;
+    commit "$msg";
+    go-back;
+}
+
+
+
+# cd ..; rmdir .\ci-utils\ -force -Recurse; Restart-PowerShell -Command "New-GitHubRepo -repoName ci-utils -mainBranch main"
+# gh repo delete ci-utils
