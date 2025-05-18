@@ -330,8 +330,6 @@ function gitInit {
         [string]$mainBranchName
     )
 
-    git init
-
     # Set the current directory to your repository's local directory if necessary
     # Set-Location -Path "C:\Path\To\Your\Repo"
 
@@ -355,7 +353,7 @@ function gitInit {
     # Perform a test push to the main branch
     try {
         Write-Host "Performing a test push to $mainBranchName..."
-        git push -u origin $mainBranchName
+        git push -u origin $mainBranchName --allow-unrelated-histories
         Write-Host "Push successful!"
     }
     catch {
@@ -382,7 +380,7 @@ function Git-Force-Push() {
     if (-not $?) {
         $currentBranch = git rev-parse --abbrev-ref HEAD
         echo "First git push failed!"
-        git pull origin $currentBranch
+        git pull origin $currentBranch --allow-unrelated-histories
         $push1 = git push --set-upstream origin main
         if (-not $?) {
             throw "`git push --set-upstream origin main` failed as well!"
