@@ -901,9 +901,10 @@ function git.CommitProfile {
         [Parameter(Mandatory = $false)]
         [string]$msg = "Updated PowerShell profile pushed to remote."
     )
+    $currentLocation = (Get-Location).Path
     go-to-location $PROFILE
     commit "$msg"
-    goback
+    change-directory $currentLocation
 }
 
 function git.makeUniqueProjectId {
