@@ -845,9 +845,13 @@ function New-GitHubRepo {
         [Parameter(Mandatory = $true)]
         [string]$repoName,
         
-        [Parameter(Mandatory = $true)]
-        [string]$mainBranch
+        [Parameter(Mandatory = $false)]
+        [string]$mainBranch = "main"
     )
+
+    if ((git config --get init.defaultBranch) -ne "$mainBranch") {
+        git config --global init.defaultBranch "$mainBranch"
+    }
 
     mkdir $repoName
     cd $repoName
@@ -860,7 +864,7 @@ function New-GitHubRepo {
 }
 
 
-function Update-PsProfileRemote{
+function Update-PsProfileRemote {
     param(
         [Parameter(Mandatory = $false)]
         [string]$msg = "Updated PowerShell profile pushed to remote."
@@ -872,5 +876,5 @@ function Update-PsProfileRemote{
 
 
 
-# cd ..; rmdir .\ci-utils\ -force -Recurse; Restart-PowerShell -Command "New-GitHubRepo -repoName ci-utils -mainBranch main"
+# cd ..; rm .\ci-utils\ -force -Recurse; Restart-PowerShell -Command "New-GitHubRepo -repoName ci-utils -mainBranch main"
 # gh repo delete ci-utils
