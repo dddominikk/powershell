@@ -44,7 +44,7 @@ function Test-Command {
     param (
         [Parameter(Mandatory = $true)]
         [string]$command
-        )
+    )
 
     [bool](Get-Command "$command" -ErrorAction SilentlyContinue)
 
@@ -896,7 +896,7 @@ function object-has-property {
     https://github.com/dddominikk/powershell
 #>
 
-function Git.CommitProfile {
+function git.CommitProfile {
     param(
         [Parameter(Mandatory = $false)]
         [string]$msg = "Updated PowerShell profile pushed to remote."
@@ -906,6 +906,17 @@ function Git.CommitProfile {
     goback
 }
 
+function git.makeUniqueProjectId {
+    $remoteUrl = git config --get remote.origin.url
+    if ($remoteUrl -match 'github\.com[:/](.+?)(\.git)?$') {
+        $ownerRepo = $Matches[1]
+        $repoId = gh api "repos/$ownerRepo" --jq ".id"
+        $branchName = git rev-parse --abbrev-ref HEAD
+        $commitSha = git rev-parse HEAD
+        return @{"repoId" = $repoId; repoContext = "$ownerRepo/branch:$branchName#$commitSha" }
+    }
+    else { Write-Error "Failed to parse GitHub owner/repo from remote origin url" }
+}
 
 
 
