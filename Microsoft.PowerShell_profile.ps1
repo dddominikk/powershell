@@ -2,6 +2,9 @@
 <#git autocomplete#>
 Import-Module posh-git
 
+# GitHub CLI autocomplete
+gh completion --shell powershell | Out-String | Invoke-Expression
+
 <# Make sure writing to files from the CLI doesn't malform them. #>
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'
@@ -34,6 +37,17 @@ function GoBack {
     $lastDir = $GLOBAL:dirStack.Pop()
     $GLOBAL:addToStack = $false
     cd $lastDir
+}
+
+
+function Test-Command {
+    param (
+        [Parameter(Mandatory = $true)]
+        [string]$command
+        )
+
+    [bool](Get-Command "$command" -ErrorAction SilentlyContinue)
+
 }
 
 function Invoke-Utility {
@@ -863,8 +877,26 @@ function New-GitHubRepo {
     #git push -u origin $mainBranch
 }
 
+function object-has-property {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$propertyName,
+        
+        [Parameter(Mandatory = $true)]
+        [object]$object
+    )
+    [bool]($object.PSobject.Properties.name -match "$propertyName" )
+}
 
-function Update-PsProfileRemote {
+
+<#
+.DESCRIPTION
+    Saves my PowerShell $PROFILE to its remote origin.
+.LINK 
+    https://github.com/dddominikk/powershell
+#>
+
+function Git.CommitProfile {
     param(
         [Parameter(Mandatory = $false)]
         [string]$msg = "Updated PowerShell profile pushed to remote."
@@ -873,6 +905,7 @@ function Update-PsProfileRemote {
     commit "$msg"
     goback
 }
+
 
 
 
