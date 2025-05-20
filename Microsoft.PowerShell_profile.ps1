@@ -905,7 +905,7 @@ function git.CommitProfile {
     $currentLocation = (Get-Location).Path
     go-to-location $PROFILE
     commit "$msg"
-    change-directory $currentLocation
+    cd $currentLocation
 }
 
 function git.makeUniqueProjectId {
