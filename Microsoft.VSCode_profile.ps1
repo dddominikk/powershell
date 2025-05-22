@@ -179,3 +179,14 @@ $ChocolateyProfile = "$env:ChocolateyInstall\helpers\chocolateyProfile.psm1"
 if (Test-Path($ChocolateyProfile)) {
   Import-Module "$ChocolateyProfile"
 }
+
+function object-has-property {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$propertyName,
+        
+        [Parameter(Mandatory = $true)]
+        [object]$object
+    )
+    [bool]($object.PSobject.Properties.name -match "$propertyName" )
+}
