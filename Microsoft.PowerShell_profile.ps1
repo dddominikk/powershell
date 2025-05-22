@@ -765,20 +765,15 @@ function Restart-PowerShell {
     
     Write-Host "Restarting PowerShell in: $targetPath"
     
-    # Check if Windows Terminal is installed
     $wtInstalled = $null -ne (Get-Command "wt.exe" -ErrorAction SilentlyContinue)
     
-    # Base PowerShell executable
     $psExe = "powershell.exe"
     
-    # Check if administrator mode is requested
     if ($RunAsAdmin) {
         Write-Host "Launching with administrator privileges..." -ForegroundColor Yellow
         
-        # Create a script that properly sets the location and then runs any commands
         $scriptContent = @"
 try {
-    # Attempt to set location to target path
     Set-Location -Path '$targetPath' -ErrorAction Stop
     Write-Host "Successfully changed to directory: '$targetPath'" -ForegroundColor Green
 } catch {
@@ -786,22 +781,16 @@ try {
     Write-Host "Starting in default location instead." -ForegroundColor Yellow
 }
 
-# Execute any provided commands
 $Command
 "@
-        
-        # Save to a temporary file
         $tempFile = [System.IO.Path]::GetTempFileName() + ".ps1"
         $scriptContent | Out-File -FilePath $tempFile -Encoding utf8
         
-        # For admin mode, we'll use a direct PowerShell launch
-        # Windows Terminal has issues with elevated processes and directory paths
+        # Use a direct PowerShell launch for admin mode as WT has issues with elevated processes and directory paths
         Start-Process $psExe -ArgumentList "-NoExit -File `"$tempFile`"" -Verb RunAs
     }
     else {
-        # Standard non-admin launch
         if ($wtInstalled) {
-            # Use Windows Terminal if available
             if ($Command) {
                 # Create a base64 encoded command to avoid escaping issues
                 $fullCommand = "Set-Location -Path '$targetPath'; $Command"
@@ -834,8 +823,6 @@ $Command
     # Exit the current session
     exit
 }
-
-
 
 New-Alias -name test-admin -value Test-Admin-Privileges;
 function Test-Admin-Privileges {  
@@ -887,8 +874,6 @@ function object-has-property {
     )
     [bool]($object.PSobject.Properties.name -match "$propertyName" )
 }
-
-
 
 <#
 .DESCRIPTION
