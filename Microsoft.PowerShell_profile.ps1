@@ -310,8 +310,8 @@ function toClipboard($path) {
 .DESCRIPTION
 Lists all custom functions in a given PowerShell session.
 #>
-function listAllCustomFunctions {
-    return Get-ChildItem function:\;
+function Get-All-Custom-Functions {
+    return Get-ChildItem function:
 }
 
 function gitListCommitIds() {
