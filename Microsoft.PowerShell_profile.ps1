@@ -920,7 +920,13 @@ function git.makeUniqueProjectId {
     else { Write-Error "Failed to parse GitHub owner/repo from remote origin url" }
 }
 
+function git.getLatestTag {
+    (git tag --sort v:refname)[-1]
+}
 
 
 # cd ..; rm .\ci-utils\ -force -Recurse; Restart-PowerShell -Command "New-GitHubRepo -repoName ci-utils -mainBranch main"
 # gh repo delete ci-utils
+
+# $latestV =  (git tag --sort v:refname)[-1]
+# gh release create $latestV --title "Release $latestV" --notes "Just a test run for the mmain branch workflow."
