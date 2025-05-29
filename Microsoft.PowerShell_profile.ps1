@@ -611,7 +611,7 @@ function Download-YT {
 
 
 
-function Download-SteamScreenshots {
+function Download-Steam-Screenshots {
     param (
         [Parameter(Mandatory = $true)]
         [string]$InputValue,
