@@ -1,6 +1,8 @@
 ﻿Set-StrictMode -Version 5;
 <#git autocomplete#>
 Import-Module posh-git
+<#npm autocomplete#>
+Import-Module npm-completion
 
 # GitHub CLI autocomplete
 gh completion --shell powershell | Out-String | Invoke-Expression
@@ -138,7 +140,7 @@ New-Alias -Name commit -Value Git.commit;
 
 <#
 .DESCRIPTION
-Commits unstaged changes to tracked files.
+Commits unstaged changes to tracked files and automatically sets upstream if needed.
 #>
 function Git.commit {
     Param(
@@ -182,16 +184,39 @@ function Git.commit {
         Write-Warning "Failed to pull updates. You may need to resolve conflicts."
     }
     
+    
+    # Attempt to push
     git push
     
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to push changes. You may need to pull first or resolve conflicts."
-        return
+        Write-Host "Push failed, checking if upstream branch needs to be set..." -ForegroundColor Yellow
+        
+        # Get current branch name
+        $currentBranch = git rev-parse --abbrev-ref HEAD
+        
+        if ($LASTEXITCODE -eq 0 -and $currentBranch) {
+            Write-Host "Setting upstream for branch '$currentBranch'..." -ForegroundColor Yellow
+            
+            # Try to set upstream and push
+            git push --set-upstream origin "$currentBranch"
+            
+            if ($LASTEXITCODE -eq 0) {
+                Write-Host "✅ Successfully set upstream and pushed changes." -ForegroundColor Green
+                return
+            }
+            else {
+                Write-Error "Failed to set upstream branch. You may need to resolve conflicts or check permissions."
+                return
+            }
+        }
+        else {
+            Write-Error "Failed to determine current branch name. Cannot set upstream automatically."
+            return
+        }
     }
     
     Write-Host "✅ Successfully committed and pushed changes." -ForegroundColor Green
 }
-
 
 <#
  .DESCRIPTION
@@ -910,8 +935,76 @@ function git.getLatestTag {
 }
 
 
+
+<#
+.SYNOPSIS
+    Creates a nested folder/file structure from a sloppy tree-style string.
+#>
+function Write-Tree {
+    <#
+    .SYNOPSIS
+    Creates nested folder/file structure from a sloppy tree-style string.
+    #>
+
+    param (
+        [Parameter(Mandatory)]
+        [string]$Tree
+    )
+
+    # Remove non-breaking spaces and normalize line endings
+    $lines = $Tree -replace "`r", '' -split "`n" | ForEach-Object {
+        ($_ -replace '^[\s\|─—\-└├┤┬┴┼│]+', '') -replace '[\|]+$', ''
+    } | Where-Object { $_.Trim() -ne '' }
+
+    # Get the first valid root directory line
+    $root = $lines | Where-Object { $_ -match '/$' } | Select-Object -First 1
+    if (-not $root) {
+        Write-Error "No valid root directory found (line ending in '/')."
+        return
+    }
+
+    $root = $root.TrimEnd('/').Trim()
+    if (-not (Test-Path $root)) {
+        New-Item -ItemType Directory -Path $root -Force | Out-Null
+    }
+
+    foreach ($line in $lines) {
+        if ($line -eq "$root/") { continue }
+
+        $cleanLine = ($line -replace '^[\s\|─—\-└├┤┬┴┼│]+', '') -replace '[\|]+$', ''
+        $relativePath = $cleanLine.Trim().TrimEnd('/')
+
+        if ($relativePath -eq '') { continue }
+
+        $fullPath = Join-Path -Path $root -ChildPath $relativePath
+
+        # Skip invalid or unresolved paths
+        if (-not $fullPath -or $fullPath -match '[<>:"?*]') { continue }
+
+        $isFile = [System.IO.Path]::HasExtension($relativePath)
+
+        if ($isFile) {
+            $dir = Split-Path $fullPath
+            if (-not (Test-Path $dir)) {
+                New-Item -ItemType Directory -Path $dir -Force | Out-Null
+            }
+            New-Item -ItemType File -Path $fullPath -Force | Out-Null
+        }
+        else {
+            New-Item -ItemType Directory -Path $fullPath -Force | Out-Null
+        }
+    }
+
+    Write-Host "Initialized structure under '$root'" -ForegroundColor Green
+}
+
+
+
 # cd ..; rm .\ci-utils\ -force -Recurse; Restart-PowerShell -Command "New-GitHubRepo -repoName ci-utils -mainBranch main"
 # gh repo delete ci-utils
 
 # $latestV =  (git tag --sort v:refname)[-1]
 # gh release create $latestV --title "Release $latestV" --notes "Just a test run for the mmain branch workflow."
+
+
+
