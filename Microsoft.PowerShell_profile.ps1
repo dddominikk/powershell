@@ -233,9 +233,9 @@ function gs () {
 };
 
 
-function gb {
-    git branch;
-};
+function gb { git branch $args };
+
+function gbc { git checkout $args };
 
 <# Specific to @airtable/blocks-cli #>
 function blr {
