@@ -870,24 +870,96 @@ function New-GitHubRepo {
     param (
         [Parameter(Mandatory = $true)]
         [string]$repoName,
-        
+
         [Parameter(Mandatory = $false)]
-        [string]$mainBranch = "main"
+        [string]$mainBranch = "main",
+
+        # Optional: if you want to target a specific owner/org explicitly.
+        # If omitted, uses the currently authenticated GH user.
+        [Parameter(Mandatory = $false)]
+        [string]$owner
     )
 
     if ((git config --get init.defaultBranch) -ne "$mainBranch") {
         git config --global init.defaultBranch "$mainBranch"
     }
 
-    mkdir $repoName
-    cd $repoName
-    git init
-    "node_modules`n" > .gitignore
-    git add .gitignore
-    git commit -m "Initial commit with .gitignore"
-    gh repo create $repoName --private --source=. --remote=origin --push
-    #git push -u origin $mainBranch
+    # Resolve GitHub username if owner not provided
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        $owner = (gh api user -q .login).Trim()
+    }
+
+    $fullName = "$owner/$repoName"
+
+    # Create folder if needed and enter it
+    if (-not (Test-Path -LiteralPath $repoName)) {
+        New-Item -ItemType Directory -Path $repoName | Out-Null
+    }
+    Push-Location $repoName
+
+    try {
+        # Init repo if needed
+        if (-not (Test-Path -LiteralPath ".git")) {
+            git init | Out-Null
+        }
+
+        # Ensure branch name
+        $currentBranch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+        if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq "HEAD") {
+            # New repo with no commits yet; create/switch to mainBranch
+            git checkout -b $mainBranch | Out-Null
+        }
+        elseif ($currentBranch -ne $mainBranch) {
+            # If you want to always work on $mainBranch, uncomment:
+            # git branch -M $mainBranch | Out-Null
+            # Otherwise leave as-is.
+            $null = $currentBranch
+        }
+
+        # Create basic .gitignore if missing, and make sure we have an initial commit
+        if (-not (Test-Path -LiteralPath ".gitignore")) {
+            "node_modules`n" | Set-Content -NoNewline -Encoding UTF8 .gitignore
+            git add .gitignore | Out-Null
+        }
+
+        # If there are no commits yet, commit whatever is staged (or stage .gitignore above)
+        git rev-parse --verify HEAD *> $null
+        if ($LASTEXITCODE -ne 0) {
+            # Ensure at least one file is staged
+            git add . | Out-Null
+            git commit -m "Initial commit" | Out-Null
+        }
+
+        # Check if remote repo exists
+        gh repo view $fullName --json name --jq .name *> $null
+        $repoExists = ($LASTEXITCODE -eq 0)
+
+        if ($repoExists) {
+            # Get the canonical clone URL and set origin to it
+            $remoteUrl = (gh repo view $fullName --json sshUrl, httpsUrl -q .sshUrl).Trim()
+
+            $existingOrigin = (git remote get-url origin 2>$null)
+            if ($LASTEXITCODE -eq 0) {
+                git remote set-url origin $remoteUrl | Out-Null
+            }
+            else {
+                git remote add origin $remoteUrl | Out-Null
+            }
+
+            # Push current branch (or mainBranch if you force-renamed above)
+            $branchToPush = (git rev-parse --abbrev-ref HEAD).Trim()
+            git push -u origin $branchToPush
+        }
+        else {
+            # Create new repo and push
+            gh repo create $fullName --private --source=. --remote=origin --push
+        }
+    }
+    finally {
+        Pop-Location
+    }
 }
+
 
 function object-has-property {
     param(
