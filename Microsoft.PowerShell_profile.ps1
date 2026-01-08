@@ -866,7 +866,13 @@ function Get-Custom-Functions {
     $myFns.Name
 }
 
-function New-GitHubRepo {
+<#
+.DESCRIPTION
+    1. Fetch "$MyGhUsername/$repoName" repo from GitHub.
+    2. Create a new remote GH repo if it doesn't exist.
+    3. Connect the fetched/created repo to the local directory.    
+#>
+function GhInit {
     param (
         [Parameter(Mandatory = $true)]
         [string]$repoName,
