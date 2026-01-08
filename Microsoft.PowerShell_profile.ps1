@@ -363,40 +363,94 @@ function Git-Tag-Last-Commit ($tag, $message) {
 .DESCRIPTION connects a local git repo with a remote GitHub one.
 .EXAMPLE Connect-GitRepo -remoteUrl "https://github.com/yourusername/yourrepository.git" -mainBranchName "main"
 #>
-function gitInit {
+function GhInit {
     param (
-        [string]$remoteUrl,
-        [string]$mainBranchName
+        [Parameter(Mandatory = $true)]
+        [string]$repoName,
+
+        # Optional path: ".", existing dir, or new dir
+        [Parameter(Mandatory = $false)]
+        [string]$path,
+
+        [Parameter(Mandatory = $false)]
+        [string]$mainBranch = "main",
+
+        [Parameter(Mandatory = $false)]
+        [string]$owner
     )
 
-    # Set the current directory to your repository's local directory if necessary
-    # Set-Location -Path "C:\Path\To\Your\Repo"
-
-    # Check current branch and rename if needed
-    $currentBranch = git rev-parse --abbrev-ref HEAD
-    if ($currentBranch -ne $mainBranchName) {
-        Write-Host "Renaming branch from $currentBranch to $mainBranchName..."
-        git branch -m $mainBranchName
+    if ((git config --get init.defaultBranch) -ne $mainBranch) {
+        git config --global init.defaultBranch $mainBranch
     }
 
-    # Add remote origin and set it if it doesn't exist
-    if (-not (git remote -v | Select-String "origin")) {
-        Write-Host "Adding remote origin..."
-        git remote add origin $remoteUrl
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        $owner = (gh api user -q .login).Trim()
+    }
+
+    $fullName = "$owner/$repoName"
+
+    # Resolve working directory
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        $workingDir = $repoName
+        if (-not (Test-Path -LiteralPath $workingDir)) {
+            New-Item -ItemType Directory -Path $workingDir | Out-Null
+        }
+        $workingDir = (Resolve-Path -LiteralPath $workingDir).Path
     }
     else {
-        Write-Host "Remote origin already exists, setting URL..."
-        git remote set-url origin $remoteUrl
+        $resolved = Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue
+        if (-not $resolved) {
+            New-Item -ItemType Directory -Path $path | Out-Null
+            $resolved = Resolve-Path -LiteralPath $path
+        }
+        $workingDir = $resolved.Path
     }
 
-    # Perform a test push to the main branch
+    Push-Location $workingDir
     try {
-        Write-Host "Performing a test push to $mainBranchName..."
-        git push -u origin $mainBranchName --allow-unrelated-histories
-        Write-Host "Push successful!"
+        if (-not (Test-Path -LiteralPath ".git")) { git init | Out-Null }
+
+        $currentBranch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+        if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq "HEAD") {
+            git checkout -b $mainBranch | Out-Null
+        }
+
+        if (-not (Test-Path -LiteralPath ".gitignore")) {
+            "node_modules`n" | Set-Content -Encoding UTF8 .gitignore
+            git add .gitignore | Out-Null
+        }
+
+        git rev-parse --verify HEAD *> $null
+        if ($LASTEXITCODE -ne 0) {
+            git add . | Out-Null
+            git commit -m "Initial commit" | Out-Null
+        }
+
+        # Does repo exist remotely?
+        gh repo view $fullName --json name --jq .name *> $null
+        $repoExists = ($LASTEXITCODE -eq 0)
+
+        if (-not $repoExists) {
+            # Create WITHOUT trying to add "origin"
+            gh repo create $fullName --private --source=. --push=false
+        }
+
+        # Now set origin ourselves (works whether repo existed or was just created)
+        $remoteUrl = (gh repo view $fullName --json sshUrl -q .sshUrl).Trim()
+
+        git remote get-url origin 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git remote set-url origin $remoteUrl | Out-Null
+        }
+        else {
+            git remote add origin $remoteUrl | Out-Null
+        }
+
+        $branchToPush = (git rev-parse --abbrev-ref HEAD).Trim()
+        git push -u origin $branchToPush
     }
-    catch {
-        Write-Host "Error during push. Please check your configuration."
+    finally {
+        Pop-Location
     }
 }
 
