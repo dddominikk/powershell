@@ -877,17 +877,20 @@ function GhInit {
         [Parameter(Mandatory = $true)]
         [string]$repoName,
 
+        # Optional path: ".", existing dir, or new dir
+        [Parameter(Mandatory = $false)]
+        [string]$path,
+
         [Parameter(Mandatory = $false)]
         [string]$mainBranch = "main",
 
-        # Optional: if you want to target a specific owner/org explicitly.
-        # If omitted, uses the currently authenticated GH user.
+        # Optional: explicit owner/org
         [Parameter(Mandatory = $false)]
         [string]$owner
     )
 
-    if ((git config --get init.defaultBranch) -ne "$mainBranch") {
-        git config --global init.defaultBranch "$mainBranch"
+    if ((git config --get init.defaultBranch) -ne $mainBranch) {
+        git config --global init.defaultBranch $mainBranch
     }
 
     # Resolve GitHub username if owner not provided
@@ -897,11 +900,25 @@ function GhInit {
 
     $fullName = "$owner/$repoName"
 
-    # Create folder if needed and enter it
-    if (-not (Test-Path -LiteralPath $repoName)) {
-        New-Item -ItemType Directory -Path $repoName | Out-Null
+    # Resolve working directory
+    if ([string]::IsNullOrWhiteSpace($path)) {
+        # Default: create/use folder named after repo
+        $workingDir = $repoName
+        if (-not (Test-Path -LiteralPath $workingDir)) {
+            New-Item -ItemType Directory -Path $workingDir | Out-Null
+        }
     }
-    Push-Location $repoName
+    else {
+        # Path explicitly provided (e.g. "." or custom dir)
+        $workingDir = Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue
+        if (-not $workingDir) {
+            New-Item -ItemType Directory -Path $path | Out-Null
+            $workingDir = Resolve-Path -LiteralPath $path
+        }
+        $workingDir = $workingDir.Path
+    }
+
+    Push-Location $workingDir
 
     try {
         # Init repo if needed
@@ -909,42 +926,32 @@ function GhInit {
             git init | Out-Null
         }
 
-        # Ensure branch name
+        # Ensure branch
         $currentBranch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
         if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq "HEAD") {
-            # New repo with no commits yet; create/switch to mainBranch
             git checkout -b $mainBranch | Out-Null
         }
-        elseif ($currentBranch -ne $mainBranch) {
-            # If you want to always work on $mainBranch, uncomment:
-            # git branch -M $mainBranch | Out-Null
-            # Otherwise leave as-is.
-            $null = $currentBranch
-        }
 
-        # Create basic .gitignore if missing, and make sure we have an initial commit
+        # .gitignore + initial commit
         if (-not (Test-Path -LiteralPath ".gitignore")) {
-            "node_modules`n" | Set-Content -NoNewline -Encoding UTF8 .gitignore
+            "node_modules`n" | Set-Content -Encoding UTF8 .gitignore
             git add .gitignore | Out-Null
         }
 
-        # If there are no commits yet, commit whatever is staged (or stage .gitignore above)
         git rev-parse --verify HEAD *> $null
         if ($LASTEXITCODE -ne 0) {
-            # Ensure at least one file is staged
             git add . | Out-Null
             git commit -m "Initial commit" | Out-Null
         }
 
-        # Check if remote repo exists
+        # Check if repo exists remotely
         gh repo view $fullName --json name --jq .name *> $null
         $repoExists = ($LASTEXITCODE -eq 0)
 
         if ($repoExists) {
-            # Get the canonical clone URL and set origin to it
-            $remoteUrl = (gh repo view $fullName --json sshUrl, httpsUrl -q .sshUrl).Trim()
+            $remoteUrl = (gh repo view $fullName --json sshUrl -q .sshUrl).Trim()
 
-            $existingOrigin = (git remote get-url origin 2>$null)
+            git remote get-url origin 2>$null | Out-Null
             if ($LASTEXITCODE -eq 0) {
                 git remote set-url origin $remoteUrl | Out-Null
             }
@@ -952,12 +959,10 @@ function GhInit {
                 git remote add origin $remoteUrl | Out-Null
             }
 
-            # Push current branch (or mainBranch if you force-renamed above)
             $branchToPush = (git rev-parse --abbrev-ref HEAD).Trim()
             git push -u origin $branchToPush
         }
         else {
-            # Create new repo and push
             gh repo create $fullName --private --source=. --remote=origin --push
         }
     }
@@ -965,6 +970,7 @@ function GhInit {
         Pop-Location
     }
 }
+
 
 
 function object-has-property {
