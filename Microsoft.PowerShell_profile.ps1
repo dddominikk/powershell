@@ -1144,5 +1144,28 @@ function Write-Tree {
 # $latestV =  (git tag --sort v:refname)[-1]
 # gh release create $latestV --title "Release $latestV" --notes "Just a test run for the mmain branch workflow."
 
+<#
+.EXAMPLE
+    `Show-Tree -Exclude("node_modules")`
+#>
 
+function Show-Tree {
+    param (
+        [string]$Path = ".",
+        [string[]]$Exclude = @("node_modules"),
+        [int]$Level = 0
+    )
 
+    Get-ChildItem -LiteralPath $Path |
+        Where-Object { $Exclude -notcontains $_.Name } |
+        ForEach-Object {
+            $indent = "  " * $Level
+
+            if ($_.PSIsContainer) {
+                Write-Output "$indent📁 $($_.Name)"
+                Show-Tree -Path $_.FullName -Exclude $Exclude -Level ($Level + 1)
+            } else {
+                Write-Output "$indent📄 $($_.Name)"
+            }
+        }
+}
