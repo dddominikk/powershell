@@ -1157,19 +1157,137 @@ function Show-Tree {
     )
 
     Get-ChildItem -LiteralPath $Path |
-        Where-Object { $Exclude -notcontains $_.Name } |
-        ForEach-Object {
-            $indent = "  " * $Level
+    Where-Object { $Exclude -notcontains $_.Name } |
+    ForEach-Object {
+        $indent = "  " * $Level
 
-            if ($_.PSIsContainer) {
-                Write-Output "$indent📁 $($_.Name)"
-                Show-Tree -Path $_.FullName -Exclude $Exclude -Level ($Level + 1)
-            } else {
-                Write-Output "$indent📄 $($_.Name)"
-            }
+        if ($_.PSIsContainer) {
+            Write-Output "$indent📁 $($_.Name)"
+            Show-Tree -Path $_.FullName -Exclude $Exclude -Level ($Level + 1)
         }
+        else {
+            Write-Output "$indent📄 $($_.Name)"
+        }
+    }
 }
 
 function Open-Remote-Origin-in-Browser {
     Start-Process msedge.exe (git remote get-url origin)
+}
+
+<#
+.DESCRIPTION
+    Recursively extracts files of matching extensions from a given path, then copies them to the root of that path.
+
+.EXAMPLE
+
+# Copy all .cube files into D:\LUTS\_extracted (flat output)
+ExtractFilesByExtension -Path "D:\LUTS" -Extensions ".cube"
+
+# Multiple extensions, custom output folder name
+ExtractFilesByExtension -Path "D:\Assets" -Extensions "cube","png","jpg" -OutputFolderName "collected"
+
+# Preserve relative folders under the output directory
+ExtractFilesByExtension -Path "D:\Assets" -Extensions ".cube" -Flatten:$false
+
+# Overwrite collisions instead of auto-suffixing
+ExtractFilesByExtension -Path "D:\Assets" -Extensions ".cube" -Overwrite
+
+    
+#>
+function ExtractFilesByExtension {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string] $Path,
+
+        [Parameter(Mandatory)]
+        [ValidateNotNullOrEmpty()]
+        [string[]] $Extensions,
+
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [string] $OutputFolderName = "_extracted",
+
+        [switch] $Overwrite,
+
+        [switch] $Flatten = $true
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "Path does not exist or is not a directory: $Path"
+    }
+
+    # Normalize root path
+    $root = (Resolve-Path -LiteralPath $Path).Path.TrimEnd('\', '/')
+
+    # Normalize extensions (ensure leading dot) and de-dupe (case-insensitive)
+    $extSet = New-Object 'System.Collections.Generic.HashSet[string]' ([System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($e in $Extensions) {
+        $n = $e.Trim()
+        if ([string]::IsNullOrWhiteSpace($n)) { continue }
+        if (-not $n.StartsWith('.')) { $n = ".$n" }
+        [void]$extSet.Add($n)
+    }
+
+    if ($extSet.Count -eq 0) {
+        throw "No valid extensions were provided."
+    }
+
+    $outDir = Join-Path $root $OutputFolderName
+    New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+    # Collect matching files
+    $files = Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+    Where-Object { $extSet.Contains($_.Extension) }
+
+    $copied = New-Object 'System.Collections.Generic.List[string]'
+
+    foreach ($f in $files) {
+        # Avoid re-copying output folder contents on reruns
+        if ($f.FullName.StartsWith($outDir, [System.StringComparison]::OrdinalIgnoreCase)) {
+            continue
+        }
+
+        if ($Flatten) {
+            $destPath = Join-Path $outDir $f.Name
+        }
+        else {
+            $relative = $f.FullName.Substring($root.Length).TrimStart('\', '/')
+            $destPath = Join-Path $outDir $relative
+            $destParent = Split-Path -Parent $destPath
+            New-Item -ItemType Directory -Force -Path $destParent | Out-Null
+        }
+
+        if (-not $Overwrite) {
+            # If destination exists, auto-suffix: name (1).ext, name (2).ext, ...
+            if (Test-Path -LiteralPath $destPath) {
+                $dir = Split-Path -Parent $destPath
+                $base = [System.IO.Path]::GetFileNameWithoutExtension($destPath)
+                $ext = [System.IO.Path]::GetExtension($destPath)
+                $i = 1
+                do {
+                    $candidate = Join-Path $dir ("{0} ({1}){2}" -f $base, $i, $ext)
+                    $i++
+                } while (Test-Path -LiteralPath $candidate)
+                $destPath = $candidate
+            }
+        }
+
+        Copy-Item -LiteralPath $f.FullName -Destination $destPath -Force:$Overwrite | Out-Null
+        [void]$copied.Add($destPath)
+    }
+
+    # SAFE: force enumeration to string[]
+    $extArray = @($extSet) | Sort-Object
+
+    [pscustomobject]@{
+        RootPath     = $root
+        OutputFolder = $outDir
+        Extensions   = $extArray
+        MatchedCount = $files.Count
+        CopiedCount  = $copied.Count
+        CopiedFiles  = $copied
+    }
 }
