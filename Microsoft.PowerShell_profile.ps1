@@ -1169,3 +1169,7 @@ function Show-Tree {
             }
         }
 }
+
+function Open-Remote-Origin-in-Browser {
+    Start-Process msedge.exe (git remote get-url origin)
+}
