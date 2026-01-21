@@ -1291,3 +1291,94 @@ function ExtractFilesByExtension {
         CopiedFiles  = $copied
     }
 }
+
+
+
+function dirname($path = ".") {
+    Split-Path -LiteralPath $path
+}
+
+
+<#
+.DESCRIPTION
+    Make a separate .zip archive from every folder at a given path.
+    Also adds files at the said path to their own archive.
+#>
+
+function Export-PathZips {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string] $Path,
+
+        # Optional regex. If omitted, everything is included.
+        [Parameter(Mandatory = $false, ValueFromRemainingArguments = $true )]
+        [string]$Match = '.*',
+
+        # Where to put the zip files. Default: <Path>\_zips
+
+        [string] $OutDir = ".\archived$(dirname -Leaf $path).zip",
+
+        # If set, match against FullName instead of Name
+        [switch] $MatchFullPath,
+
+        # Overwrite existing zips (otherwise it errors if a zip already exists)
+        [switch] $Force
+    )
+
+    $root = (Resolve-Path -LiteralPath $Path).Path
+    if (-not $OutDir) { $OutDir = Join-Path $root "_zips" }
+    $OutDir = [IO.Path]::GetFullPath($OutDir)
+
+    New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+
+    $testMatch = {
+        param($item)
+        if ([string]::IsNullOrWhiteSpace($Match)) { return $true }
+        $target = if ($MatchFullPath) { $item.FullName } else { $item.Name }
+        return $target -match $Match
+    }
+
+    # 1) Zip each immediate subdirectory into its own archive
+    $dirs = Get-ChildItem -LiteralPath $root -Directory -Force | Where-Object { & $testMatch $_ }
+
+    foreach ($d in $dirs) {
+        # Name the zip after the directory (safe filename)
+        $safeName = ($d.Name -replace '[<>:"/\\|?*\x00-\x1F]', '_')
+        $zipPath = Join-Path $OutDir ("dir__{0}.zip" -f $safeName)
+
+        if (Test-Path -LiteralPath $zipPath) {
+            if ($Force) { Remove-Item -LiteralPath $zipPath -Force }
+            else { throw "Zip already exists: $zipPath (use -Force to overwrite)" }
+        }
+
+        # Important: compress directory contents, not the parent path
+        Compress-Archive -LiteralPath (Join-Path $d.FullName '*') -DestinationPath $zipPath -Force:$Force
+    }
+
+    # 2) Zip files located directly at the root (non-recursive)
+    $files = Get-ChildItem -LiteralPath $root -File -Force | Where-Object { & $testMatch $_ }
+
+    $filesZip = Join-Path $OutDir "files__root.zip"
+    if (Test-Path -LiteralPath $filesZip) {
+        if ($Force) { Remove-Item -LiteralPath $filesZip -Force }
+        else { throw "Zip already exists: $filesZip (use -Force to overwrite)" }
+    }
+
+    if ($files.Count -gt 0) {
+        Compress-Archive -LiteralPath $files.FullName -DestinationPath $filesZip -Force:$Force
+    }
+    else {
+        # Create an empty zip? PowerShell won't create empty archives; we just skip and report.
+        Write-Verbose "No root files to zip in: $root"
+    }
+
+    # Return a summary object
+    [pscustomobject]@{
+        Root         = $root
+        OutDir       = $OutDir
+        DirZipsMade  = $dirs.Count
+        RootFiles    = $files.Count
+        RootFilesZip = If (Test-Path -LiteralPath $filesZip) { filesZip } Else { $null };
+    }
+}
