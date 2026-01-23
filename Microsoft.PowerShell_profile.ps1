@@ -1406,3 +1406,193 @@ function Export-PathZips {
         RootFilesZip = $filesZip
     }
 }
+
+
+function Get-PathItemSize {
+    <#
+.SYNOPSIS
+  Lists sizes for all immediate files and folders within a path (du-like, one level).
+
+.DESCRIPTION
+  - PowerShell 5.1 compatible.
+  - Extra-safe: handles access denied, reparse points, etc.
+  - Performant: uses .NET enumeration instead of Get-ChildItem -Recurse.
+  - Compact output by default (table). Use -Raw to return objects.
+
+.PARAMETER Path
+  Target directory. Defaults to current directory.
+
+.PARAMETER Unit
+  Display unit: B, KB, MB, GB, TB. Defaults to MB.
+
+.PARAMETER IncludeHidden
+  Include hidden/system items.
+
+.PARAMETER FollowReparsePoints
+  By default, folder sizes do NOT traverse reparse points (junctions/symlinks).
+  Enable this to follow them (use with caution).
+
+.PARAMETER Raw
+  If set, return raw objects instead of formatted compact output.
+
+.EXAMPLE
+  Get-PathItemSize
+  Get-PathItemSize -Path C:\Work -Unit GB
+  Get-PathItemSize -Raw | Export-Csv sizes.csv -NoTypeInformation
+#>
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string] $Path = (Get-Location).Path,
+
+        [ValidateSet('B', 'KB', 'MB', 'GB', 'TB')]
+        [string] $Unit = 'MB',
+
+        [switch] $IncludeHidden,
+
+        [switch] $FollowReparsePoints,
+
+        [switch] $Raw
+    )
+
+    begin {
+        $unitMap = @{
+            'B'  = 1.0
+            'KB' = 1KB
+            'MB' = 1MB
+            'GB' = 1GB
+            'TB' = 1TB
+        }
+        $divisor = [double]$unitMap[$Unit]
+
+        function _FormatSize([long] $bytes) {
+            if ($divisor -le 1) { return $bytes }
+            return [math]::Round(($bytes / $divisor), 2)
+        }
+
+        function _IsHiddenOrSystem([System.IO.FileSystemInfo] $fsi) {
+            $a = $fsi.Attributes
+            return (($a -band [IO.FileAttributes]::Hidden) -ne 0) -or (($a -band [IO.FileAttributes]::System) -ne 0)
+        }
+
+        function _IsReparsePoint([System.IO.FileSystemInfo] $fsi) {
+            return (($fsi.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)
+        }
+
+        function _GetDirectorySizeBytes([string] $dirPath) {
+            $total = 0L
+            $stack = New-Object 'System.Collections.Generic.Stack[string]'
+            $stack.Push($dirPath)
+
+            while ($stack.Count -gt 0) {
+                $current = $stack.Pop()
+
+                # Files
+                try {
+                    foreach ($f in [System.IO.Directory]::EnumerateFiles($current)) {
+                        try {
+                            $fi = New-Object System.IO.FileInfo($f)
+                            if (-not $IncludeHidden -and (_IsHiddenOrSystem $fi)) { continue }
+                            $total += $fi.Length
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+
+                # Subdirs
+                try {
+                    foreach ($d in [System.IO.Directory]::EnumerateDirectories($current)) {
+                        try {
+                            $di = New-Object System.IO.DirectoryInfo($d)
+                            if (-not $IncludeHidden -and (_IsHiddenOrSystem $di)) { continue }
+                            if (-not $FollowReparsePoints -and (_IsReparsePoint $di)) { continue }
+                            $stack.Push($di.FullName)
+                        }
+                        catch { }
+                    }
+                }
+                catch { }
+            }
+
+            return $total
+        }
+
+        try {
+            $resolved = (Resolve-Path -LiteralPath $Path -ErrorAction Stop).ProviderPath
+        }
+        catch {
+            throw "Path not found or not accessible: $Path"
+        }
+
+        if (-not (Test-Path -LiteralPath $resolved -PathType Container)) {
+            throw "Path is not a directory: $resolved"
+        }
+
+        $dirInfo = New-Object System.IO.DirectoryInfo($resolved)
+    }
+
+    process {
+        $items = New-Object System.Collections.Generic.List[object]
+
+        # Directories
+        try {
+            foreach ($di in $dirInfo.EnumerateDirectories()) {
+                if (-not $IncludeHidden -and (_IsHiddenOrSystem $di)) { continue }
+
+                $bytes = 0L
+                $note = $null
+
+                if (-not $FollowReparsePoints -and (_IsReparsePoint $di)) {
+                    $note = 'ReparsePointSkipped'
+                }
+                else {
+                    $bytes = _GetDirectorySizeBytes $di.FullName
+                }
+
+                $items.Add([PSCustomObject]@{
+                        Name      = $di.Name
+                        Type      = 'Dir'
+                        SizeBytes = $bytes
+                        Size      = _FormatSize $bytes
+                        Unit      = $Unit
+                        Note      = $note
+                    })
+            }
+        }
+        catch { }
+
+        # Files
+        try {
+            foreach ($fi in $dirInfo.EnumerateFiles()) {
+                if (-not $IncludeHidden -and (_IsHiddenOrSystem $fi)) { continue }
+
+                $bytes = 0L
+                try { $bytes = $fi.Length } catch { $bytes = 0L }
+
+                $items.Add([PSCustomObject]@{
+                        Name      = $fi.Name
+                        Type      = 'File'
+                        SizeBytes = $bytes
+                        Size      = _FormatSize $bytes
+                        Unit      = $Unit
+                        Note      = $null
+                    })
+            }
+        }
+        catch { }
+
+        $result = $items | Sort-Object SizeBytes -Descending
+
+        if ($Raw) {
+            return $result
+        }
+
+        # Default: compact display output
+        $result |
+        Select-Object @{
+            Name = 'Size'; Expression = { "{0}{1}" -f $_.Size, $_.Unit }
+        }, Type, Name, Note |
+        Format-Table -AutoSize
+    }
+}
