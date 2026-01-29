@@ -364,13 +364,32 @@ function Git-Tag-Last-Commit ($tag, $message) {
 .EXAMPLE Connect-GitRepo -remoteUrl "https://github.com/yourusername/yourrepository.git" -mainBranchName "main"
 #>
 function GhInit {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$repoName,
+    <#
+    .SYNOPSIS
+    Initialize/ensure a local git repo and connect/push it to a GitHub repo using gh.
+
+    .DESCRIPTION
+    - Works from an existing folder (default: current directory).
+    - Creates the GitHub repo if it doesn't exist.
+    - Uses HTTPS remote (avoids SSH publickey issues).
+    - On push, handles remote-ahead/divergence safely:
+        * fetch
+        * if behind only -> ff-only merge
+        * if ahead only  -> push
+        * if diverged    -> try normal merge
+            - if normal merge fails, retry with whitespace/EOL-tolerant merge:
+                git merge -Xignore-all-space -Xrenormalize
+            - if still fails -> abort and push to import/<machine>-<timestamp>
+    #>
+
+    [CmdletBinding()]
+    param(
+        [Parameter(Position = 0)]
+        [string]$repoName = (Split-Path (Get-Location) -Leaf),
 
         # Optional path: ".", existing dir, or new dir
         [Parameter(Mandatory = $false)]
-        [string]$path,
+        [string]$path = ".",
 
         [Parameter(Mandatory = $false)]
         [string]$mainBranch = "main",
@@ -379,64 +398,205 @@ function GhInit {
         [string]$owner
     )
 
-    if ((git config --get init.defaultBranch) -ne $mainBranch) {
-        git config --global init.defaultBranch $mainBranch
-    }
+    # --- Helpers (local scope) ---
+    function _Resolve-Dir([string]$p) {
+        if ([string]::IsNullOrWhiteSpace($p)) { $p = "." }
 
-    if ([string]::IsNullOrWhiteSpace($owner)) {
-        $owner = (gh api user -q .login).Trim()
-    }
-
-    $fullName = "$owner/$repoName"
-
-    # Resolve working directory
-    if ([string]::IsNullOrWhiteSpace($path)) {
-        $workingDir = $repoName
-        if (-not (Test-Path -LiteralPath $workingDir)) {
-            New-Item -ItemType Directory -Path $workingDir | Out-Null
-        }
-        $workingDir = (Resolve-Path -LiteralPath $workingDir).Path
-    }
-    else {
-        $resolved = Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue
+        $resolved = Resolve-Path -LiteralPath $p -ErrorAction SilentlyContinue
         if (-not $resolved) {
-            New-Item -ItemType Directory -Path $path | Out-Null
-            $resolved = Resolve-Path -LiteralPath $path
+            New-Item -ItemType Directory -Path $p -Force | Out-Null
+            $resolved = Resolve-Path -LiteralPath $p
         }
-        $workingDir = $resolved.Path
+        return $resolved.Path
     }
 
-    Push-Location $workingDir
-    try {
-        if (-not (Test-Path -LiteralPath ".git")) { git init | Out-Null }
+    function _EnsureGlobalDefaultBranch([string]$branch) {
+        $cur = (git config --global --get init.defaultBranch 2>$null)
+        if ($cur -ne $branch) {
+            git config --global init.defaultBranch $branch | Out-Null
+        }
+    }
 
-        $currentBranch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
-        if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq "HEAD") {
-            git checkout -b $mainBranch | Out-Null
+    function _EnsureLocalAutoCrlfInputIfWindows() {
+        if ($env:OS -ne "Windows_NT") { return }
+        $local = (git config --local --get core.autocrlf 2>$null)
+        if ($local -ne "input") {
+            git config --local core.autocrlf input | Out-Null
+        }
+    }
+
+    function _EnsureBranch([string]$branch) {
+        $current = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
+        if ([string]::IsNullOrWhiteSpace($current) -or $current -eq "HEAD") {
+            git checkout -b $branch | Out-Null
+            return $branch
         }
 
+        git show-ref --verify --quiet "refs/heads/$branch"
+        $exists = ($LASTEXITCODE -eq 0)
+
+        if (-not $exists) {
+            git checkout -b $branch | Out-Null
+            return $branch
+        }
+
+        if ($current -ne $branch) {
+            git checkout $branch | Out-Null
+        }
+
+        return $branch
+    }
+
+    function _EnsureGitignore() {
         if (-not (Test-Path -LiteralPath ".gitignore")) {
             "node_modules`n" | Set-Content -Encoding UTF8 .gitignore
             git add .gitignore | Out-Null
         }
+    }
 
+    function _EnsureInitialCommit() {
         git rev-parse --verify HEAD *> $null
         if ($LASTEXITCODE -ne 0) {
             git add . | Out-Null
             git commit -m "Initial commit" | Out-Null
         }
+    }
+
+    function _GetHttpsRemote([string]$fullName) {
+        $u = $null
+        try {
+            $u = gh repo view $fullName --json httpsUrl -q .httpsUrl 2>$null
+        }
+        catch {
+            $u = $null
+        }
+
+        if ([string]::IsNullOrWhiteSpace($u)) {
+            return "https://github.com/$fullName.git"
+        }
+
+        $u = $u.Trim()
+        if ($u.EndsWith(".git")) { return $u }
+        return ($u + ".git")
+    }
+
+    function _RemoteBranchExists([string]$branch) {
+        git show-ref --verify --quiet "refs/remotes/origin/$branch"
+        return ($LASTEXITCODE -eq 0)
+    }
+
+    function _PushWithMergeOrImportBranch([string]$branch) {
+        git fetch origin 2>$null | Out-Null
+
+        # If remote branch doesn't exist → normal push
+        if (-not (_RemoteBranchExists $branch)) {
+            git push -u origin $branch
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push branch '$branch'." }
+            return
+        }
+
+        # Compare local vs remote
+        $status = git rev-list --left-right --count "$branch...origin/$branch" 2>$null
+        if (-not $status) { throw "Failed to compare local and remote branches." }
+
+        $parts = $status -split '\s+'
+        $ahead = [int]$parts[0] # local ahead
+        $behind = [int]$parts[1] # local behind
+
+        # Local behind only → fast-forward
+        if ($ahead -eq 0 -and $behind -gt 0) {
+            Write-Host "Local branch is behind remote. Fast-forwarding..." -ForegroundColor Cyan
+            git merge --ff-only "origin/$branch"
+            if ($LASTEXITCODE -ne 0) { throw "Fast-forward failed unexpectedly." }
+            return
+        }
+
+        # Local ahead only → push
+        if ($ahead -gt 0 -and $behind -eq 0) {
+            git push -u origin $branch
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push branch '$branch'." }
+            return
+        }
+
+        # In sync
+        if ($ahead -eq 0 -and $behind -eq 0) {
+            Write-Host "Local and remote are already in sync." -ForegroundColor Green
+            return
+        }
+
+        # Diverged → attempt merges
+        Write-Host "Branches diverged. Attempting merge..." -ForegroundColor Yellow
+
+        # Attempt 1: normal merge
+        git merge --no-edit "origin/$branch" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git push -u origin $branch
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push branch '$branch' after merge." }
+            return
+        }
+
+        # Abort and attempt 2: whitespace/EOL tolerant merge
+        git merge --abort 2>$null | Out-Null
+
+        Write-Host "Normal merge failed. Retrying whitespace/EOL-tolerant merge..." -ForegroundColor Yellow
+        git merge --no-edit -Xignore-all-space -Xrenormalize "origin/$branch" 2>$null | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            git push -u origin $branch
+            if ($LASTEXITCODE -ne 0) { throw "Failed to push branch '$branch' after tolerant merge." }
+            return
+        }
+
+        # Still failed → abort and push to import branch
+        git merge --abort 2>$null | Out-Null
+
+        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
+        $machine = ($env:COMPUTERNAME -replace '[^A-Za-z0-9\-]', '')
+        if ([string]::IsNullOrWhiteSpace($machine)) { $machine = "local" }
+
+        $importBranch = "import/$machine-$stamp"
+
+        Write-Host "Merge failed. Pushing to '$importBranch' instead." -ForegroundColor Yellow
+
+        git checkout -b $importBranch | Out-Null
+        git push -u origin $importBranch
+        if ($LASTEXITCODE -ne 0) { throw "Failed to push import branch '$importBranch'." }
+    }
+
+    # --- Main flow ---
+    _EnsureGlobalDefaultBranch $mainBranch
+
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        $owner = (gh api user -q .login).Trim()
+    }
+    if ([string]::IsNullOrWhiteSpace($owner)) {
+        throw "Could not determine GitHub owner. Ensure GitHub CLI is authenticated (gh auth login)."
+    }
+
+    $fullName = "$owner/$repoName"
+    $workingDir = _Resolve-Dir $path
+
+    Push-Location $workingDir
+    try {
+        if (-not (Test-Path -LiteralPath ".git")) {
+            git init | Out-Null
+        }
+
+        _EnsureLocalAutoCrlfInputIfWindows
+
+        $branch = _EnsureBranch $mainBranch
+
+        _EnsureGitignore
+        _EnsureInitialCommit
 
         # Does repo exist remotely?
         gh repo view $fullName --json name --jq .name *> $null
         $repoExists = ($LASTEXITCODE -eq 0)
 
         if (-not $repoExists) {
-            # Create WITHOUT trying to add "origin"
-            gh repo create $fullName --private --source=. --push=false
+            gh repo create $fullName --private --source=. --push=false | Out-Null
         }
 
-        # Now set origin ourselves (works whether repo existed or was just created)
-        $remoteUrl = (gh repo view $fullName --json sshUrl -q .sshUrl).Trim()
+        $remoteUrl = _GetHttpsRemote $fullName
 
         git remote get-url origin 2>$null | Out-Null
         if ($LASTEXITCODE -eq 0) {
@@ -446,8 +606,9 @@ function GhInit {
             git remote add origin $remoteUrl | Out-Null
         }
 
-        $branchToPush = (git rev-parse --abbrev-ref HEAD).Trim()
-        git push -u origin $branchToPush
+        Write-Host "Remote set to: $remoteUrl" -ForegroundColor Cyan
+
+        _PushWithMergeOrImportBranch $branch
     }
     finally {
         Pop-Location
@@ -457,8 +618,11 @@ function GhInit {
 # Example usage:
 # Connect-GitRepo -remoteUrl "https://github.com/yourusername/yourrepository.git" -mainBranchName "main"
 
-
-
+<#
+.DESCRIPTION
+Delete all remote GitHub repo branches with "import" in their name.
+(( gh api repos/dddominikk/dom-server/branches --jq '.[].name' ) -imatch "import") | ForEach-Object { gh api -X DELETE "repos/dddominikk/dom-server/git/refs/heads/$($_.tostring())" }
+#>
 
 #[System.Windows.Forms.SendKeys]::SendWait("A");
 #[System.Windows.Forms.SendKeys]::SendWait("{ENTER}");
@@ -909,120 +1073,15 @@ function Test-Admin-Privileges {
     (New-Object Security.Principal.WindowsPrincipal $user).IsInRole([Security.Principal.WindowsBuiltinRole]::Administrator)  
 }
 
-function Obsidian {
+<# function Obsidian {
     Start-Process "C:\Program Files\Obsidian\Obsidian.exe"
 }
-
+ #>
 
 function Get-Custom-Functions {
     $myFns = Get-ChildItem function:
     Write-Host "You have $($myFns.Length) functions defined in your profile."
     $myFns.Name
-}
-
-<#
-.DESCRIPTION
-    1. Fetch "$MyGhUsername/$repoName" repo from GitHub.
-    2. Create a new remote GH repo if it doesn't exist.
-    3. Connect the fetched/created repo to the local directory.    
-#>
-function GhInit {
-    param (
-        [Parameter(Mandatory = $true)]
-        [string]$repoName,
-
-        # Optional path: ".", existing dir, or new dir
-        [Parameter(Mandatory = $false)]
-        [string]$path,
-
-        [Parameter(Mandatory = $false)]
-        [string]$mainBranch = "main",
-
-        # Optional: explicit owner/org
-        [Parameter(Mandatory = $false)]
-        [string]$owner
-    )
-
-    if ((git config --get init.defaultBranch) -ne $mainBranch) {
-        git config --global init.defaultBranch $mainBranch
-    }
-
-    # Resolve GitHub username if owner not provided
-    if ([string]::IsNullOrWhiteSpace($owner)) {
-        $owner = (gh api user -q .login).Trim()
-    }
-
-    $fullName = "$owner/$repoName"
-
-    # Resolve working directory
-    if ([string]::IsNullOrWhiteSpace($path)) {
-        # Default: create/use folder named after repo
-        $workingDir = $repoName
-        if (-not (Test-Path -LiteralPath $workingDir)) {
-            New-Item -ItemType Directory -Path $workingDir | Out-Null
-        }
-    }
-    else {
-        # Path explicitly provided (e.g. "." or custom dir)
-        $workingDir = Resolve-Path -LiteralPath $path -ErrorAction SilentlyContinue
-        if (-not $workingDir) {
-            New-Item -ItemType Directory -Path $path | Out-Null
-            $workingDir = Resolve-Path -LiteralPath $path
-        }
-        $workingDir = $workingDir.Path
-    }
-
-    Push-Location $workingDir
-
-    try {
-        # Init repo if needed
-        if (-not (Test-Path -LiteralPath ".git")) {
-            git init | Out-Null
-        }
-
-        # Ensure branch
-        $currentBranch = (git rev-parse --abbrev-ref HEAD 2>$null).Trim()
-        if ([string]::IsNullOrWhiteSpace($currentBranch) -or $currentBranch -eq "HEAD") {
-            git checkout -b $mainBranch | Out-Null
-        }
-
-        # .gitignore + initial commit
-        if (-not (Test-Path -LiteralPath ".gitignore")) {
-            "node_modules`n" | Set-Content -Encoding UTF8 .gitignore
-            git add .gitignore | Out-Null
-        }
-
-        git rev-parse --verify HEAD *> $null
-        if ($LASTEXITCODE -ne 0) {
-            git add . | Out-Null
-            git commit -m "Initial commit" | Out-Null
-        }
-
-        # Check if repo exists remotely
-        gh repo view $fullName --json name --jq .name *> $null
-        $repoExists = ($LASTEXITCODE -eq 0)
-
-        if ($repoExists) {
-            $remoteUrl = (gh repo view $fullName --json sshUrl -q .sshUrl).Trim()
-
-            git remote get-url origin 2>$null | Out-Null
-            if ($LASTEXITCODE -eq 0) {
-                git remote set-url origin $remoteUrl | Out-Null
-            }
-            else {
-                git remote add origin $remoteUrl | Out-Null
-            }
-
-            $branchToPush = (git rev-parse --abbrev-ref HEAD).Trim()
-            git push -u origin $branchToPush
-        }
-        else {
-            gh repo create $fullName --private --source=. --remote=origin --push
-        }
-    }
-    finally {
-        Pop-Location
-    }
 }
 
 
