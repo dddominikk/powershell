@@ -1596,3 +1596,256 @@ function Get-PathItemSize {
         Format-Table -AutoSize
     }
 }
+
+function capacities-revive {
+    [CmdletBinding()]
+    param(
+        [string]$InputDir = ".",
+        [string]$OutDir = "$($(remove-extension $inputDir))",
+        [switch]$Overwrite = $false,
+        [switch]$DryRun,
+        [bool]$DeleteSource = $true
+    )
+
+    if (-not (Get-Command Invoke-CapacitiesReviveAuto -ErrorAction SilentlyContinue)) {
+        Import-Module "$(Split-Path -Parent $PROFILE)\Modules\capacities.io\reviver.psm1" -ErrorAction Stop
+    }
+
+        Invoke-CapacitiesReviveAuto -InputDir $InputDir -OutDir "$OutDir" -overwrite -DeleteSource $DeleteSource
+}
+
+function Remove-Extension {
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [object]$InputObject
+    )
+
+    process {
+
+        $text = switch ($InputObject) {
+
+            { $_ -is [System.IO.FileSystemInfo] } {
+                $_.FullName
+                break
+            }
+
+            { $_ -is [string] } {
+                $_
+                break
+            }
+
+            { $_.PSObject.Properties['FullName'] } {
+                $_.FullName
+                break
+            }
+
+            { $_.PSObject.Properties['Name'] } {
+                $_.Name
+                break
+            }
+
+            default {
+                $_.ToString()
+            }
+        }
+
+        # Remove last extension if it exists
+        if ($text -match '\.d\.ts$') {
+            return $text -replace '\.d\.ts$', ''
+        }
+        else {
+            return $text -replace '\.[^.]+$', ''
+        }
+    }
+}
+
+
+function Get-AllItems {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Path,
+
+        [switch]$Recurse,
+
+        [ScriptBlock]$ForEach
+    )
+
+    # Normalize / expand
+    $p = [Environment]::ExpandEnvironmentVariables($Path)
+
+    if ($p -eq '~' -or $p -like '~\*' -or $p -like '~/\*') {
+        $home = [Environment]::GetFolderPath('UserProfile')
+        $rest = $p.Substring(1).TrimStart('\', '/')
+        $p = if ($rest) { Join-Path $home $rest } else { $home }
+    }
+
+    try {
+        $abs = (Resolve-Path -LiteralPath $p -ErrorAction Stop).Path
+    }
+    catch {
+        $abs = [IO.Path]::GetFullPath($p)
+    }
+
+    # Ensure parent directory exists
+    $ensuredDir = Ensure-Path -Path $abs -SkipLastNode:$true
+
+    # CASE 1: Path exists and is a file → return single element
+    if (Test-Path -LiteralPath $abs -PathType Leaf) {
+
+        $item = Get-Item -LiteralPath $abs
+
+        if ($ForEach) {
+            Validate-ForEachBlock $ForEach
+            return , (& $ForEach $item)
+        }
+
+        return , $item
+    }
+
+    # CASE 2: Path exists and is directory → enumerate it
+    if (Test-Path -LiteralPath $abs -PathType Container) {
+
+        $items = if ($Recurse) {
+            Get-ChildItem -LiteralPath $abs -Recurse -Force
+        }
+        else {
+            Get-ChildItem -LiteralPath $abs -Force
+        }
+
+        return Invoke-ForEachIfNeeded $items $ForEach
+    }
+
+    # CASE 3: Path does not exist → enumerate ensured parent
+    $items = if ($Recurse) {
+        Get-ChildItem -LiteralPath $ensuredDir -Recurse -Force
+    }
+    else {
+        Get-ChildItem -LiteralPath $ensuredDir -Force
+    }
+
+    return Invoke-ForEachIfNeeded $items $ForEach
+}
+
+# Helper: validate ForEach scriptblock
+function Validate-ForEachBlock {
+    param([ScriptBlock]$Block)
+
+    $pb = $Block.Ast.ParamBlock
+    $count = if ($pb) { $pb.Parameters.Count } else { 0 }
+
+    if ($count -ne 1) {
+        throw "ForEach script block must accept exactly 1 parameter. Found: $count"
+    }
+}
+
+# Helper: apply ForEach if provided
+function Invoke-ForEachIfNeeded {
+    param(
+        [object[]]$Items,
+        [ScriptBlock]$Block
+    )
+
+    if (-not $Block) { return $Items }
+
+    Validate-ForEachBlock $Block
+
+    return $Items | ForEach-Object {
+        & $Block $_
+    }
+}
+
+
+function Ensure-Path {
+    
+    <#
+    Ensures the directory portion of a path exists, and optionally creates the last node.
+    Always returns a normalized absolute path string.
+
+    -SkipLastNode (default $true):
+      Creates parent directories only and returns the parent (full path minus last node).
+
+    -SkipLastNode:$false:
+      Creates the last node too (dir or file) and returns the full path.
+  #>
+
+    [CmdletBinding(DefaultParameterSetName = "Auto")]
+    param(
+        [Parameter(Mandatory, Position = 0)]
+        [string]$Path,
+
+        [Parameter(ParameterSetName = "Directory")]
+        [switch]$Directory,
+
+        [Parameter(ParameterSetName = "File")]
+        [switch]$File,
+
+        [bool]$SkipLastNode = $true
+    )
+
+    # 1) Expand environment variables like %TEMP%
+    $p = [Environment]::ExpandEnvironmentVariables($Path)
+
+    # 2) Expand ~
+    if ($p -eq '~' -or $p -like '~\*' -or $p -like '~/\*') {
+        $home = [Environment]::GetFolderPath('UserProfile')
+        $rest = $p.Substring(1).TrimStart('\', '/')
+        $p = if ($rest) { Join-Path $home $rest } else { $home }
+    }
+
+    # 3) Normalize to absolute path *without requiring it to exist*
+    #    If it exists, Resolve-Path gives canonical casing; otherwise GetFullPath is safe.
+    try {
+        $abs = (Resolve-Path -LiteralPath $p -ErrorAction Stop).Path
+    }
+    catch {
+        $abs = [System.IO.Path]::GetFullPath($p)
+    }
+
+    # Determine whether path should be treated as directory.
+    # - If user forces -Directory / -File, trust that.
+    # - Otherwise: trailing slash/backslash means directory.
+    $treatAsDir = $Directory.IsPresent -or (-not $File.IsPresent -and ($Path -match '[\\/]\s*$'))
+
+    # If skipping last node, we ensure the *parent directory* exists and return it.
+    if ($SkipLastNode) {
+        # For a directory-ish path with trailing slash, "last node" is the final folder.
+        # So parent is one level up.
+        $targetDir = if ($treatAsDir) { Split-Path -Path $abs -Parent } else { Split-Path -Path $abs -Parent }
+
+        if ([string]::IsNullOrWhiteSpace($targetDir)) {
+            $targetDir = (Get-Location).Path
+        }
+
+        if (-not (Test-Path -LiteralPath $targetDir -PathType Container)) {
+            New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        }
+
+        return $targetDir
+    }
+
+    # Otherwise, ensure parent exists, then create the last node as file/dir.
+    $parent = Split-Path -Path $abs -Parent
+    if ([string]::IsNullOrWhiteSpace($parent)) {
+        $parent = (Get-Location).Path
+    }
+
+    if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+        New-Item -ItemType Directory -Path $parent -Force | Out-Null
+    }
+
+    if ($treatAsDir) {
+        if (-not (Test-Path -LiteralPath $abs -PathType Container)) {
+            New-Item -ItemType Directory -Path $abs -Force | Out-Null
+        }
+        return $abs
+    }
+    else {
+        if (-not (Test-Path -LiteralPath $abs -PathType Leaf)) {
+            New-Item -ItemType File -Path $abs -Force | Out-Null
+        }
+        return $abs
+    }
+
+
+}
